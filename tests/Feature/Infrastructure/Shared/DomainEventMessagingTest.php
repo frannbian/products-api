@@ -81,3 +81,22 @@ test('a redelivered message is recorded only once', function () {
 
     expect(AuditEntryModel::count())->toBe(1);
 });
+
+test('a message whose actor was deleted before it was consumed is still recorded', function () {
+    $user = UserModel::factory()->create();
+    $message = deletedMessage($user->id);
+    $user->delete();
+
+    (new RecordAuditEntry)->handle($message);
+
+    expect(AuditEntryModel::sole()->actor_id)->toBe($user->id);
+});
+
+test('deleting a user keeps who made each change in the audit trail', function () {
+    $user = UserModel::factory()->create();
+    (new RecordAuditEntry)->handle(deletedMessage($user->id));
+
+    $user->delete();
+
+    expect(AuditEntryModel::sole()->actor_id)->toBe($user->id);
+});
