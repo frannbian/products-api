@@ -2,11 +2,12 @@
 
 namespace App\Application\Identity\UseCases;
 
+use App\Application\Identity\Contracts\TokenService;
+use App\Application\Identity\DTOs\AuthenticationResult;
+use App\Application\Identity\DTOs\LoginUserData;
+use App\Domain\Identity\Exceptions\InvalidCredentials;
 use App\Domain\Identity\Repositories\UserRepository;
 use App\Domain\Identity\Services\PasswordHasher;
-use App\Domain\Identity\Services\TokenService;
-use App\Models\User;
-use Illuminate\Auth\AuthenticationException;
 
 final class LoginUser
 {
@@ -17,24 +18,16 @@ final class LoginUser
     ) {}
 
     /**
-     * @return array{user: User, access_token: string}
+     * @throws InvalidCredentials
      */
-    public function execute(string $email, string $password): array
+    public function execute(LoginUserData $data): AuthenticationResult
     {
-        $user = $this->users->findByEmail($email);
+        $user = $this->users->findByEmail($data->email);
 
-        if (
-            ! $user ||
-            ! $this->hasher->verify($password, $user->password)
-        ) {
-            throw new AuthenticationException(
-                'Las credenciales son incorrectas.'
-            );
+        if (! $user || ! $this->hasher->verify($data->password, $user->password())) {
+            throw new InvalidCredentials;
         }
 
-        return [
-            'user' => $user,
-            'access_token' => $this->tokens->create($user),
-        ];
+        return new AuthenticationResult($user, $this->tokens->issueFor($user));
     }
 }

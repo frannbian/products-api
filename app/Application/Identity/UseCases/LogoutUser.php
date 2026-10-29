@@ -2,8 +2,7 @@
 
 namespace App\Application\Identity\UseCases;
 
-use App\Domain\Identity\Services\TokenService;
-use App\Models\User;
+use App\Application\Identity\Contracts\TokenService;
 
 final class LogoutUser
 {
@@ -11,8 +10,8 @@ final class LogoutUser
         private TokenService $tokens,
     ) {}
 
-    public function execute(User $user): void
+    public function execute(): void
     {
-        $this->tokens->revokeCurrent($user);
+        $this->tokens->revoke();
     }
 }

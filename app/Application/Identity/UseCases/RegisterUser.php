@@ -2,10 +2,15 @@
 
 namespace App\Application\Identity\UseCases;
 
+use App\Application\Identity\Contracts\TokenService;
+use App\Application\Identity\DTOs\AuthenticationResult;
+use App\Application\Identity\DTOs\RegisterUserData;
+use App\Domain\Identity\Entities\User;
+use App\Domain\Identity\Exceptions\EmailAlreadyRegistered;
 use App\Domain\Identity\Repositories\UserRepository;
 use App\Domain\Identity\Services\PasswordHasher;
-use App\Domain\Identity\Services\TokenService;
-use App\Models\User;
+use Illuminate\Auth\Events\Registered;
+use Illuminate\Contracts\Events\Dispatcher;
 
 final class RegisterUser
 {
@@ -13,22 +18,26 @@ final class RegisterUser
         private UserRepository $users,
         private PasswordHasher $hasher,
         private TokenService $tokens,
+        private Dispatcher $events,
     ) {}
 
     /**
-     * @return array{user: User, access_token: string}
+     * @throws EmailAlreadyRegistered
      */
-    public function execute(array $data): array
+    public function execute(RegisterUserData $data): AuthenticationResult
     {
-        $user = $this->users->create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => $this->hasher->hash($data['password']),
-        ]);
+        if ($this->users->existsByEmail($data->email)) {
+            throw new EmailAlreadyRegistered($data->email);
+        }
 
-        return [
-            'user' => $user,
-            'access_token' => $this->tokens->create($user),
-        ];
+        $user = $this->users->save(User::register(
+            $data->name,
+            $data->email,
+            $this->hasher->hash($data->password),
+        ));
+
+        $this->events->dispatch(new Registered($user));
+
+        return new AuthenticationResult($user, $this->tokens->issueFor($user));
     }
 }
