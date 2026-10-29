@@ -19,6 +19,11 @@ use Illuminate\Http\Request;
 
 class AuthController extends Controller
 {
+    /**
+     * Register a user and get an access token.
+     *
+     * @unauthenticated
+     */
     public function register(RegisterRequest $request, RegisterUser $register): JsonResponse
     {
         $result = $register->execute($request->toData());
@@ -29,6 +34,13 @@ class AuthController extends Controller
         ], 201);
     }
 
+    /**
+     * Log in and get an access token.
+     *
+     * Limited to 5 failed attempts per email and IP.
+     *
+     * @unauthenticated
+     */
     public function login(LoginRequest $request, LoginUser $login): JsonResponse
     {
         $result = $request->authenticate($login);
@@ -39,6 +51,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Invalidate the current access token.
+     */
     public function logout(LogoutUser $logout): JsonResponse
     {
         $logout->execute();
@@ -46,6 +61,11 @@ class AuthController extends Controller
         return response()->json(['message' => __('auth.logged_out')]);
     }
 
+    /**
+     * Exchange the current access token for a new one.
+     *
+     * The previous token is invalidated.
+     */
     public function refresh(Request $request, RefreshToken $refresh): JsonResponse
     {
         return response()->json([
@@ -54,6 +74,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Get the authenticated user.
+     */
     public function me(Request $request, GetUser $getUser): UserResource
     {
         return UserResource::make(

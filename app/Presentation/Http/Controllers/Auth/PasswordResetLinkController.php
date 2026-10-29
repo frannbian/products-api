@@ -11,7 +11,9 @@ use Illuminate\Http\JsonResponse;
 class PasswordResetLinkController extends Controller
 {
     /**
-     * Handle an incoming password reset link request.
+     * Send a password reset link by email.
+     *
+     * @unauthenticated
      */
     public function store(ForgotPasswordRequest $request, SendPasswordResetLink $sendResetLink): JsonResponse
     {

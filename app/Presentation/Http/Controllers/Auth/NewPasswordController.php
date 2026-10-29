@@ -11,7 +11,9 @@ use Illuminate\Http\JsonResponse;
 class NewPasswordController extends Controller
 {
     /**
-     * Handle an incoming new password request.
+     * Reset the password with the token received by email.
+     *
+     * @unauthenticated
      */
     public function store(ResetPasswordRequest $request, ResetPassword $resetPassword): JsonResponse
     {
