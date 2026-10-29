@@ -5,8 +5,10 @@ namespace App\Application\Catalog\UseCases;
 use App\Application\Catalog\Concerns\EnsuresCurrencyExists;
 use App\Application\Catalog\DTOs\ProductData;
 use App\Application\Catalog\Exceptions\UnknownCurrency;
+use App\Application\Shared\Contracts\EventPublisher;
 use App\Application\Shared\Contracts\TransactionManager;
 use App\Domain\Catalog\Entities\Product;
+use App\Domain\Catalog\Events\ProductUpdated;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\Repositories\ProductRepository;
@@ -21,6 +23,7 @@ final class UpdateProduct
         private ProductRepository $products,
         private CurrencyRepository $currencies,
         private TransactionManager $transactions,
+        private EventPublisher $events,
     ) {}
 
     /**
@@ -47,7 +50,11 @@ final class UpdateProduct
                 $data->manufacturingCost,
             );
 
-            return $this->products->save($product);
+            $product = $this->products->save($product);
+
+            $this->events->publish(new ProductUpdated($product));
+
+            return $product;
         });
     }
 }

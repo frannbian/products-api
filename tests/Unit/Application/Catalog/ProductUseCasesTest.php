@@ -10,15 +10,19 @@ use App\Application\Catalog\UseCases\ListProductPrices;
 use App\Application\Catalog\UseCases\ListProducts;
 use App\Application\Catalog\UseCases\SetProductPrice;
 use App\Application\Catalog\UseCases\UpdateProduct;
+use App\Application\Shared\Contracts\EventPublisher;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\ValueObjects\ProductId;
+use App\Domain\Shared\Events\DomainEvent;
+use Tests\Support\FakeEventPublisher;
 use Tests\Support\FakeTransactionManager;
 use Tests\Support\InMemoryCurrencyRepository;
 use Tests\Support\InMemoryProductRepository;
 
 beforeEach(function () {
     $this->tx = new FakeTransactionManager;
+    $this->events = new FakeEventPublisher;
     $this->products = new InMemoryProductRepository($this->tx);
     $this->currencies = new InMemoryCurrencyRepository;
     $this->usd = $this->currencies->add('US Dollar', '$', '1');
@@ -39,7 +43,7 @@ function productData(int $currencyId, array $overrides = []): ProductData
 
 function createProduct(object $test, array $overrides = [])
 {
-    return (new CreateProduct($test->products, $test->currencies))
+    return (new CreateProduct($test->products, $test->currencies, $test->events))
         ->execute(productData($test->usd->id()->value(), $overrides));
 }
 
@@ -53,7 +57,7 @@ test('it creates a product', function () {
 });
 
 test('a product can not be created with an unknown currency', function () {
-    (new CreateProduct($this->products, $this->currencies))->execute(productData(99));
+    (new CreateProduct($this->products, $this->currencies, $this->events))->execute(productData(99));
 })->throws(UnknownCurrency::class);
 
 test('it lists products page by page', function () {
@@ -81,7 +85,7 @@ test('getting an unknown product fails', function () {
 test('it updates a product', function () {
     $product = createProduct($this);
 
-    $updated = (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute(
+    $updated = (new UpdateProduct($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         productData($this->eur->id()->value(), ['name' => 'Mouse', 'price' => '50']),
     );
@@ -92,31 +96,31 @@ test('it updates a product', function () {
 });
 
 test('updating an unknown product fails', function () {
-    (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute(new ProductId(99), productData($this->usd->id()->value()));
+    (new UpdateProduct($this->products, $this->currencies, $this->tx, $this->events))->execute(new ProductId(99), productData($this->usd->id()->value()));
 })->throws(ProductNotFound::class);
 
 test('a product can not be updated with an unknown currency', function () {
     $product = createProduct($this);
 
-    (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute($product->id(), productData(99));
+    (new UpdateProduct($this->products, $this->currencies, $this->tx, $this->events))->execute($product->id(), productData(99));
 })->throws(UnknownCurrency::class);
 
 test('it deletes a product', function () {
     $product = createProduct($this);
 
-    (new DeleteProduct($this->products, $this->tx))->execute($product->id());
+    (new DeleteProduct($this->products, $this->tx, $this->events))->execute($product->id());
 
     expect($this->products->findById($product->id()))->toBeNull();
 });
 
 test('deleting an unknown product fails', function () {
-    (new DeleteProduct($this->products, $this->tx))->execute(new ProductId(99));
+    (new DeleteProduct($this->products, $this->tx, $this->events))->execute(new ProductId(99));
 })->throws(ProductNotFound::class);
 
 test('it registers a price in another currency', function () {
     $product = createProduct($this);
 
-    $result = (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    $result = (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -129,7 +133,7 @@ test('it registers a price in another currency', function () {
 
 test('registering a price again in the same currency updates it', function () {
     $product = createProduct($this);
-    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx);
+    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events);
     $first = $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']));
 
     $second = $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '95']));
@@ -143,7 +147,7 @@ test('registering a price again in the same currency updates it', function () {
 test('a price can not be registered in an unknown currency', function () {
     $product = createProduct($this);
 
-    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => 99, 'price' => '92']),
     );
@@ -152,14 +156,14 @@ test('a price can not be registered in an unknown currency', function () {
 test('a price can not be registered in the base currency', function () {
     $product = createProduct($this);
 
-    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->usd->id()->value(), 'price' => '92']),
     );
 })->throws(PriceInBaseCurrency::class);
 
 test('a price can not be registered for an unknown product', function () {
-    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         new ProductId(99),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -167,7 +171,7 @@ test('a price can not be registered for an unknown product', function () {
 
 test('it lists the prices of a product', function () {
     $product = createProduct($this);
-    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -181,7 +185,7 @@ test('it lists the prices of a product', function () {
 test('it lists the prices of a product page by page', function () {
     $product = createProduct($this);
     $ars = $this->currencies->add('Peso argentino');
-    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx);
+    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events);
     $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']));
     $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $ars->id()->value(), 'price' => '1000']));
 
@@ -199,7 +203,7 @@ test('listing the prices of an unknown product fails', function () {
 test('updating a product locks it inside a transaction', function () {
     $product = createProduct($this);
 
-    (new UpdateProduct($this->products, $this->currencies, $this->tx))
+    (new UpdateProduct($this->products, $this->currencies, $this->tx, $this->events))
         ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']));
 
     expect($this->products->locks)->toBe([['id' => $product->id()->value(), 'inTransaction' => true]]);
@@ -208,7 +212,7 @@ test('updating a product locks it inside a transaction', function () {
 test('registering a price locks the product inside a transaction', function () {
     $product = createProduct($this);
 
-    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -219,7 +223,7 @@ test('registering a price locks the product inside a transaction', function () {
 test('deleting a product locks it inside a transaction', function () {
     $product = createProduct($this);
 
-    (new DeleteProduct($this->products, $this->tx))->execute($product->id());
+    (new DeleteProduct($this->products, $this->tx, $this->events))->execute($product->id());
 
     expect($this->products->locks)->toBe([['id' => $product->id()->value(), 'inTransaction' => true]]);
 });
@@ -231,4 +235,74 @@ test('reading a product takes no lock and opens no transaction', function () {
 
     expect($this->products->locks)->toBe([])
         ->and($this->tx->transactions)->toBe(0);
+});
+
+test('creating a product publishes product.created with its id', function () {
+    $product = createProduct($this);
+
+    expect($this->events->names())->toBe(['product.created'])
+        ->and($this->events->published[0]->aggregateId())->toBe($product->id()->value());
+});
+
+test('updating a product publishes product.updated with the new state', function () {
+    $product = createProduct($this);
+
+    (new UpdateProduct($this->products, $this->currencies, $this->tx, $this->events))
+        ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']));
+
+    expect($this->events->names())->toBe(['product.created', 'product.updated'])
+        ->and($this->events->published[1]->payload()['name'])->toBe('Mouse');
+});
+
+test('registering a price publishes product.price_set', function () {
+    $product = createProduct($this);
+
+    (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
+        $product->id(),
+        ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
+    );
+
+    expect($this->events->names())->toBe(['product.created', 'product.price_set'])
+        ->and($this->events->published[1]->payload())->toBe(['currency_id' => $this->eur->id()->value(), 'price' => '92.00', 'created' => true]);
+});
+
+test('deleting a product publishes product.deleted', function () {
+    $product = createProduct($this);
+
+    (new DeleteProduct($this->products, $this->tx, $this->events))->execute($product->id());
+
+    expect($this->events->names())->toBe(['product.created', 'product.deleted']);
+});
+
+test('changes are published inside the transaction so they are only sent if it commits', function () {
+    $product = createProduct($this);
+    $publishedInTransaction = null;
+    $events = new class($this->tx, $publishedInTransaction) implements EventPublisher
+    {
+        public function __construct(private FakeTransactionManager $tx, public ?bool &$inTransaction) {}
+
+        public function publish(DomainEvent ...$events): void
+        {
+            $this->inTransaction = $this->tx->active();
+        }
+    };
+
+    (new UpdateProduct($this->products, $this->currencies, $this->tx, $events))
+        ->execute($product->id(), productData($this->usd->id()->value()));
+
+    expect($publishedInTransaction)->toBeTrue();
+});
+
+test('a rejected change publishes nothing', function () {
+    $product = createProduct($this);
+
+    try {
+        (new SetProductPrice($this->products, $this->currencies, $this->tx, $this->events))->execute(
+            $product->id(),
+            ProductPriceData::fromArray(['currency_id' => $this->usd->id()->value(), 'price' => '1']),
+        );
+    } catch (PriceInBaseCurrency) {
+    }
+
+    expect($this->events->names())->toBe(['product.created']);
 });

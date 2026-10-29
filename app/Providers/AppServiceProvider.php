@@ -2,9 +2,15 @@
 
 namespace App\Providers;
 
+use App\Application\Shared\Contracts\AuditTrail;
+use App\Application\Shared\Contracts\EventPublisher;
 use App\Application\Shared\Contracts\TransactionManager;
+use App\Infrastructure\Shared\Audit\EloquentAuditTrail;
+use App\Infrastructure\Shared\Audit\RecordAuditEntry;
 use App\Infrastructure\Shared\Health\CacheHealthCheck;
 use App\Infrastructure\Shared\Health\DatabaseHealthCheck;
+use App\Infrastructure\Shared\Messaging\DomainEventMessage;
+use App\Infrastructure\Shared\Messaging\LaravelEventPublisher;
 use App\Infrastructure\Shared\Persistence\DatabaseTransactionManager;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
@@ -26,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public array $bindings = [
         TransactionManager::class => DatabaseTransactionManager::class,
+        EventPublisher::class => LaravelEventPublisher::class,
+        AuditTrail::class => EloquentAuditTrail::class,
     ];
 
     /**
@@ -41,6 +49,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Consumers of domain event messages: each one is a queued listener.
+        Event::listen(DomainEventMessage::class, RecordAuditEntry::class);
+
         Event::listen(DiagnosingHealth::class, DatabaseHealthCheck::class);
         Event::listen(DiagnosingHealth::class, CacheHealthCheck::class);
 

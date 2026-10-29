@@ -6,7 +6,9 @@ use App\Application\Catalog\Concerns\EnsuresCurrencyExists;
 use App\Application\Catalog\DTOs\ProductPriceData;
 use App\Application\Catalog\DTOs\SetProductPriceResult;
 use App\Application\Catalog\Exceptions\UnknownCurrency;
+use App\Application\Shared\Contracts\EventPublisher;
 use App\Application\Shared\Contracts\TransactionManager;
+use App\Domain\Catalog\Events\ProductPriceSet;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\Repositories\ProductRepository;
@@ -25,6 +27,7 @@ final class SetProductPrice
         private ProductRepository $products,
         private CurrencyRepository $currencies,
         private TransactionManager $transactions,
+        private EventPublisher $events,
     ) {}
 
     /**
@@ -46,6 +49,8 @@ final class SetProductPrice
             $created = $product->setPriceIn($data->currencyId, $data->price);
 
             $product = $this->products->save($product);
+
+            $this->events->publish(new ProductPriceSet($id, $data->currencyId, $data->price, $created));
 
             return new SetProductPriceResult($product->priceIn($data->currencyId), $created);
         });
