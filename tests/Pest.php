@@ -43,6 +43,14 @@ function jwtFor(UserModel $user): string
 }
 
 /**
+ * Bearer token of a freshly created user, for endpoints that require auth.
+ */
+function apiToken(): string
+{
+    return jwtFor(UserModel::factory()->create());
+}
+
+/**
  * Tests run every request in the same process, unlike production. Forget the
  * resolved guards and the token cached by the JWT instance the guard uses.
  */
