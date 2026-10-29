@@ -19,6 +19,7 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="APP_NAME" value="Products API"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="FRONTEND_URL" value="http://frontend.test"/>
         <env name="JWT_SECRET" value="testing-secret-testing-secret-testing-secret-0123"/>

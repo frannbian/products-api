@@ -2,7 +2,6 @@
 
 use App\Application\Identity\Contracts\PasswordResetBroker;
 use App\Application\Identity\Enums\PasswordResetStatus;
-use App\Application\Identity\Exceptions\PasswordResetFailed;
 use App\Application\Identity\UseCases\SendPasswordResetLink;
 use App\Domain\Identity\ValueObjects\Email;
 
@@ -16,17 +15,14 @@ test('it sends the reset link to the given email', function () {
         ->withArgs(fn (Email $email) => $email->value() === 'john@example.com')
         ->andReturn(PasswordResetStatus::LinkSent);
 
-    expect($this->useCase->execute(new Email('john@example.com')))
-        ->toBe(PasswordResetStatus::LinkSent);
+    $this->useCase->execute(new Email('john@example.com'));
 });
 
-test('it throws when the link could not be sent', function (PasswordResetStatus $status) {
+test('it does not reveal whether the email is registered or throttled', function (PasswordResetStatus $status) {
     $this->broker->allows('sendResetLink')->andReturn($status);
 
-    try {
-        $this->useCase->execute(new Email('john@example.com'));
-        $this->fail('Expected PasswordResetFailed to be thrown.');
-    } catch (PasswordResetFailed $e) {
-        expect($e->status)->toBe($status);
-    }
+    // No exception: the caller can not tell an unknown email from a known one.
+    $this->useCase->execute(new Email('john@example.com'));
+
+    expect(true)->toBeTrue();
 })->with([PasswordResetStatus::InvalidUser, PasswordResetStatus::Throttled]);

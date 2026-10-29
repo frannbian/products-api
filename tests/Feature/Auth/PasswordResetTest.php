@@ -14,7 +14,7 @@ test('reset password link can be requested', function () {
 
     $this->postJson('/api/auth/forgot-password', ['email' => $user->email])
         ->assertOk()
-        ->assertJson(['message' => __('passwords.sent')]);
+        ->assertJson(['message' => __('passwords.sent_if_registered')]);
 
     Notification::assertSentTo($user, ResetPassword::class);
 });
@@ -32,10 +32,26 @@ test('the reset link points to the frontend', function () {
     });
 });
 
-test('reset link request fails for an unknown email', function () {
-    $this->postJson('/api/auth/forgot-password', ['email' => 'ghost@example.com'])
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors(['email' => __('passwords.user')]);
+test('an unknown email gets the same response as a registered one', function () {
+    $registered = UserModel::factory()->create();
+
+    $known = $this->postJson('/api/auth/forgot-password', ['email' => $registered->email]);
+    $unknown = $this->postJson('/api/auth/forgot-password', ['email' => 'ghost@example.com']);
+
+    $unknown->assertOk();
+    expect($unknown->json())->toBe($known->json());
+    Notification::assertSentTimes(ResetPassword::class, 1);
+});
+
+test('a throttled request gets the same response, so it does not reveal the account either', function () {
+    $user = UserModel::factory()->create();
+    $first = $this->postJson('/api/auth/forgot-password', ['email' => $user->email]);
+
+    $this->postJson('/api/auth/forgot-password', ['email' => $user->email])
+        ->assertOk()
+        ->assertExactJson($first->json());
+
+    Notification::assertSentTimes(ResetPassword::class, 1);
 });
 
 test('password can be reset with a valid token', function () {
