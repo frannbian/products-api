@@ -12,13 +12,14 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 - [Resiliencia](#resiliencia)
 - [Performance](#performance)
 - [Cache](#cache)
+- [Mensajería asíncrona](#mensajería-asíncrona)
 - [Arquitectura](#arquitectura)
 - [Tests](#tests)
 - [Decisiones de diseño](#decisiones-de-diseño)
 
 ## Puesta en marcha
 
-Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL y Redis).
+Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL, Redis y SQS).
 
 ```bash
 composer install
@@ -26,9 +27,18 @@ cp .env.example .env               # completar DB_PASSWORD y REDIS_PASSWORD
 php artisan key:generate
 php artisan jwt:secret             # clave para firmar los JWT
 
-docker compose up -d               # PostgreSQL 17 + Redis 7.4
+docker compose up -d               # PostgreSQL 17 + Redis 7.4 + SQS (ElasticMQ)
 php artisan migrate --seed         # tablas + datos de ejemplo
 php artisan serve                  # http://localhost:8000
+```
+
+Y en otras terminales, un worker por cola (ver [Mensajería asíncrona](#mensajería-asíncrona)):
+
+```bash
+php artisan queue:work sqs --queue=imports
+php artisan queue:work sqs --queue=catalog-events
+php artisan queue:work sqs --queue=mail
+php artisan queue:work sqs --queue=default
 ```
 
 Si el puerto 6379 ya está ocupado (por ejemplo, por un Redis instalado en la máquina), cambiá `REDIS_PORT` en el `.env`: el contenedor publica Redis en ese puerto.
@@ -75,6 +85,9 @@ Todos los listados están paginados con `?page=1&per_page=15` (máximo 100) y de
 | DELETE | `/products/{id}` | Elimina el producto (soft delete) | 204 |
 | GET | `/products/{id}/prices` | Lista paginada de los precios del producto en otras divisas | 200 |
 | POST | `/products/{id}/prices` | Registra el precio en una divisa: lo crea o lo reemplaza si ya existe | 201 / 200 |
+| GET | `/products/{id}/history` | Historial de cambios del producto (auditoría asíncrona), paginado | 200 |
+| POST | `/products/import` | Importa hasta 1000 productos en background | 202 |
+| GET | `/imports/{id}` | Estado de una importación (solo para quien la creó) | 200 |
 
 ### Divisas
 
@@ -291,6 +304,59 @@ Las lecturas del catálogo se sirven desde Redis. Los repositorios cacheados son
 
 - `/up` lo verifica.
 - Si no responde, la API devuelve `503` con `Retry-After`.
+
+## Mensajería asíncrona
+
+Las tareas que no tienen que bloquear al cliente se procesan en background con **Amazon SQS**, mediante el driver nativo de colas de Laravel.
+
+- En local, SQS lo emula **ElasticMQ** (`docker-compose.yml`) y no hace falta una cuenta de AWS.
+- En producción se apunta a AWS SQS cambiando solo variables de entorno: se quita `SQS_ENDPOINT` y se configuran `SQS_PREFIX` y las credenciales. El código no cambia.
+
+**Por qué SQS.** Entre SQS, RabbitMQ y Kafka, es el único con driver oficial de Laravel: jobs, reintentos, backoff, delays y `failed_jobs` funcionan sin paquetes de terceros. RabbitMQ necesita un paquete de la comunidad, y Kafka es un log de eventos que no encaja con el modelo de colas de Laravel (además de ser mucha más infraestructura).
+
+### Ejemplos
+
+| Ejemplo | Patrón | Cola |
+|---|---|---|
+| **Email de bienvenida** al registrarse | Listener encolado sobre un evento | `mail` |
+| **Auditoría del catálogo** (`GET /products/{id}/history`) | Eventos de dominio publicados como mensajes; un consumidor los registra | `catalog-events` |
+| **Importación masiva** (`POST /products/import`) | API asíncrona: `202 Accepted` + polling del estado | `imports` |
+
+**Auditoría.** Los use cases publican eventos de dominio (`product.created`, `product.updated`, `product.price_set`, `product.deleted`) a través del puerto `EventPublisher`.
+
+- La infraestructura los envuelve en un mensaje con el usuario que hizo el cambio.
+- Cada consumidor es un listener encolado que recibe su propia copia. Agregar otro consumidor es agregar otro listener.
+- SQS entrega *al menos una vez*, así que el consumidor es **idempotente**: inserta por `event_id`, que es único, e ignora los duplicados.
+
+**Importación.**
+
+1. Valida todas las filas antes de aceptar (los errores apuntan a la fila, como `products.3.price`) y responde `202` con `Location: /api/imports/{id}` y `Retry-After`.
+2. Las filas quedan en la base y el mensaje lleva **solo el id** (*claim check*). Así se respeta el límite de 256 KB de SQS.
+3. El worker procesa **una fila por transacción**, con el import bloqueado (`FOR UPDATE`), y avanza el progreso en la misma transacción. Si el worker se cae a mitad, el reintento sigue desde la fila siguiente. Si llega un mensaje duplicado, el segundo worker espera el lock y encuentra la fila hecha. Cada fila se procesa **exactamente una vez**.
+4. Los errores de negocio (por ejemplo, una divisa que no existe) quedan en `errors` con el número de fila y no frenan el resto.
+5. Si el job agota sus reintentos, el import queda `failed`.
+
+```bash
+curl -i -X POST http://localhost:8000/api/products/import -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"products": [{"name": "A", "description": "…", "price": 10, "currency_id": 1, "tax_cost": 1, "manufacturing_cost": 2}]}'
+# HTTP/1.1 202 Accepted
+# Location: http://localhost:8000/api/imports/bd2a3b3d-…
+# Retry-After: 2
+
+curl http://localhost:8000/api/imports/bd2a3b3d-… -H "Authorization: Bearer $TOKEN"
+# {"data": {"status": "completed", "total": 1, "processed": 1, "succeeded": 1, "failed": 0, "errors": [], …}}
+```
+
+### Garantías y buenas prácticas
+
+- **Se envía después del commit.** La conexión `sqs` tiene `after_commit = true` y los listeners son `ShouldQueueAfterCommit`. Si la transacción hace rollback, no se manda nada, y un worker nunca procesa datos que todavía no son visibles.
+- **Reintentos con backoff** en cada job (`tries` y `backoff`). Los que agotan los intentos quedan en `failed_jobs`.
+- **Dead-letter queue por cola.** Un mensaje que tumba al worker antes de que Laravel registre la falla pasa a `<cola>-dlq` después de 5 recepciones, en vez de reintentarse para siempre.
+- **Visibility timeout mayor que el timeout del job.** Por ejemplo, `imports` tiene 360 s de visibilidad y el job 300 s, así SQS no entrega el mismo mensaje a otro worker mientras el primero sigue trabajando.
+- **Long polling de 20 s:** menos requests vacíos, que en SQS se cobran.
+- **Un worker por cola.** Con long polling, un worker que escucha varias colas espera hasta 20 s en cada cola vacía antes de pasar a la siguiente. Lo medimos: 21 s de latencia con un worker para todas las colas, contra menos de 1,5 s con uno por cola. Además cada cola escala por separado. La configuración de producción está en [`docker/supervisor/queue-workers.conf`](docker/supervisor/queue-workers.conf).
+
+En los tests la cola es `sync`, así que los jobs corren en el momento, y se usa `Queue::fake()` para verificar qué se encola y en qué cola.
 
 ## Arquitectura
 

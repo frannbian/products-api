@@ -1116,6 +1116,306 @@
                 }
             }
         },
+        "/products/{product}/history": {
+            "get": {
+                "operationId": "products.history",
+                "description": "Each change is recorded asynchronously by a queue consumer, so the\nlatest one may take a moment to appear. Deleted products keep their\nhistory.",
+                "summary": "List the changes made to a product, oldest first",
+                "tags": [
+                    "ProductHistory"
+                ],
+                "parameters": [
+                    {
+                        "name": "product",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated set of `AuditEntryResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/AuditEntryResource"
+                                            }
+                                        },
+                                        "links": {
+                                            "type": "object",
+                                            "properties": {
+                                                "first": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "last": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "prev": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "next": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "first",
+                                                "last",
+                                                "prev",
+                                                "next"
+                                            ]
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "from": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "minimum": 1
+                                                },
+                                                "last_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "links": {
+                                                    "type": "array",
+                                                    "description": "Generated paginator links.",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "active": {
+                                                                "type": "boolean"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "url",
+                                                            "label",
+                                                            "active"
+                                                        ]
+                                                    }
+                                                },
+                                                "path": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ],
+                                                    "description": "Base path for paginator generated URLs."
+                                                },
+                                                "per_page": {
+                                                    "type": "integer",
+                                                    "description": "Number of items shown per page.",
+                                                    "minimum": 0
+                                                },
+                                                "to": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "description": "Number of the last item in the slice.",
+                                                    "minimum": 1
+                                                },
+                                                "total": {
+                                                    "type": "integer",
+                                                    "description": "Total number of items being paginated.",
+                                                    "minimum": 0
+                                                }
+                                            },
+                                            "required": [
+                                                "current_page",
+                                                "from",
+                                                "last_page",
+                                                "links",
+                                                "path",
+                                                "per_page",
+                                                "to",
+                                                "total"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "data",
+                                        "links",
+                                        "meta"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    }
+                }
+            }
+        },
+        "/products/import": {
+            "post": {
+                "operationId": "products.import",
+                "description": "Every row is validated right away; the products are created by a queue\nworker. Responds 202 Accepted with the import, whose status is at the\nURL in the Location header.",
+                "summary": "Import up to 1000 products in the background",
+                "tags": [
+                    "ProductImport"
+                ],
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Unique key (1-255 characters) to retry the request safely: a retry with the same key and body replays the first response instead of repeating it.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportProductsRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
+                    "202": {
+                        "description": "Import accepted, processing in the background",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/ProductImportResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        },
+                        "headers": {
+                            "Location": {
+                                "description": "URL to poll for the import status.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Retry-After": {
+                                "description": "Seconds to wait before polling.",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/imports/{import}": {
+            "get": {
+                "operationId": "imports.show",
+                "description": "While it is pending or processing, Retry-After says when to poll again.",
+                "summary": "Get the status of an import",
+                "tags": [
+                    "ProductImport"
+                ],
+                "parameters": [
+                    {
+                        "name": "import",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "headers": {
+                            "Retry-After": {
+                                "description": "Present while the import is not finished: seconds to wait before polling again.",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/ImportNotFound"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
         "/products/{product}/prices": {
             "get": {
                 "operationId": "products.prices.index",
@@ -1430,6 +1730,46 @@
             }
         },
         "schemas": {
+            "AuditEntryResource": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "event": {
+                        "type": "string"
+                    },
+                    "actor_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "payload": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    },
+                    "occurred_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "event_id",
+                    "event",
+                    "actor_id",
+                    "payload",
+                    "occurred_at"
+                ],
+                "title": "AuditEntryResource"
+            },
             "CurrencyRequest": {
                 "type": "object",
                 "description": "Used to create (POST) and fully replace (PUT) a currency.",
@@ -1491,6 +1831,61 @@
                 ],
                 "title": "ForgotPasswordRequest"
             },
+            "ImportProductsRequest": {
+                "type": "object",
+                "description": "Every row is validated with the same rules as a single product before the\nimport is accepted: errors point to the row (products.3.price). Only\nbusiness rules that need the database are checked while processing.",
+                "properties": {
+                    "products": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "maxLength": 255
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "maxLength": 2000
+                                },
+                                "price": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 9999999999.99
+                                },
+                                "currency_id": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                "tax_cost": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 9999999999.99
+                                },
+                                "manufacturing_cost": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 9999999999.99
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "description",
+                                "price",
+                                "currency_id",
+                                "tax_cost",
+                                "manufacturing_cost"
+                            ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 1000
+                    }
+                },
+                "required": [
+                    "products"
+                ],
+                "title": "ImportProductsRequest"
+            },
             "LoginRequest": {
                 "type": "object",
                 "properties": {
@@ -1507,6 +1902,74 @@
                     "password"
                 ],
                 "title": "LoginRequest"
+            },
+            "ProductImportResource": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "processed": {
+                        "type": "integer"
+                    },
+                    "succeeded": {
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "row": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "message": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "row",
+                                "message"
+                            ]
+                        }
+                    },
+                    "created_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "status",
+                    "total",
+                    "processed",
+                    "succeeded",
+                    "failed",
+                    "errors",
+                    "created_at",
+                    "finished_at"
+                ],
+                "title": "ProductImportResource"
             },
             "ProductPriceRequest": {
                 "type": "object",
@@ -1787,6 +2250,25 @@
             },
             "ProductNotFound": {
                 "description": "The product does not exist",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Error overview."
+                                }
+                            },
+                            "required": [
+                                "message"
+                            ]
+                        }
+                    }
+                }
+            },
+            "ImportNotFound": {
+                "description": "The import does not exist or belongs to another user",
                 "content": {
                     "application/json": {
                         "schema": {

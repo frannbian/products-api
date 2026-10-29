@@ -40,7 +40,19 @@ test('registering a price documents both created and replaced', function () {
 
 test('POST endpoints document the Idempotency-Key header', function (string $path) {
     expect(headerParameters(operation('post', $path)))->toContain('Idempotency-Key');
-})->with(['/products', '/currencies', '/products/{product}/prices']);
+})->with(['/products', '/currencies', '/products/{product}/prices', '/products/import']);
+
+test('the import is documented as accepted with where to poll', function () {
+    $responses = operation('post', '/products/import')['responses'];
+
+    expect($responses)->toHaveKey('202')->not->toHaveKey('200')
+        ->and($responses['202']['headers'])->toHaveKeys(['Location', 'Retry-After']);
+});
+
+test('the import status and the product history are documented', function () {
+    expect(operation('get', '/imports/{import}')['responses'])->toHaveKeys(['200', '404'])
+        ->and(operation('get', '/products/{product}/history')['responses'])->toHaveKey('200');
+});
 
 test('updates do not document optimistic locking headers', function (string $path) {
     expect(headerParameters(operation('put', $path)))->not->toContain('If-Match');
