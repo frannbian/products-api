@@ -16,7 +16,7 @@ trait EnsuresCurrencyExists
      */
     private function ensureCurrencyExists(CurrencyId $id): void
     {
-        if ($this->currencies->findById($id) === null) {
+        if (! $this->currencies->exists($id)) {
             throw new UnknownCurrency($id);
         }
     }

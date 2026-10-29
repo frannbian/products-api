@@ -12,9 +12,26 @@ test('it lists currencies', function () {
 
     $this->getJson('/api/currencies')
         ->assertOk()
-        ->assertExactJson(['data' => [
+        ->assertJsonPath('data', [
             ['id' => $usd->id, 'name' => 'US Dollar', 'symbol' => '$', 'exchange_rate' => '1.000000'],
-        ]]);
+        ]);
+});
+
+test('it lists currencies paginated', function () {
+    CurrencyModel::factory()->count(3)->create();
+
+    $this->getJson('/api/currencies?per_page=2&page=2')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('meta.total', 3)
+        ->assertJsonPath('meta.current_page', 2)
+        ->assertJsonStructure(['links' => ['first', 'last', 'prev', 'next'], 'meta']);
+});
+
+test('it validates the currency pagination parameters', function () {
+    $this->getJson('/api/currencies?per_page=500')
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('per_page');
 });
 
 test('it creates a currency', function () {

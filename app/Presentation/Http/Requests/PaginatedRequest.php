@@ -1,11 +1,14 @@
 <?php
 
-namespace App\Presentation\Http\Requests\Catalog;
+namespace App\Presentation\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class ListProductsRequest extends FormRequest
+/**
+ * Query string of every paginated listing: ?page=1&per_page=15 (max 100).
+ */
+class PaginatedRequest extends FormRequest
 {
     public function authorize(): bool
     {

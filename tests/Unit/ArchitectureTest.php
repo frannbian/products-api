@@ -57,9 +57,10 @@ arch('form requests live in the presentation layer')
     ->expect('Illuminate\Foundation\Http\FormRequest')
     ->toOnlyBeUsedIn('App\Presentation\Http\Requests');
 
+// Service providers are the composition root: they may configure Eloquent.
 arch('eloquent models live in the infrastructure layer')
     ->expect('Illuminate\Database\Eloquent\Model')
-    ->toOnlyBeUsedIn('App\Infrastructure');
+    ->toOnlyBeUsedIn(['App\Infrastructure', 'App\Providers']);
 
 arch('value objects are final and readonly')
     ->expect([

@@ -7,6 +7,7 @@ use App\Domain\Catalog\ValueObjects\ProductId;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * @property ProductPrice $resource
@@ -25,11 +26,13 @@ class ProductPriceResource extends JsonResource
     }
 
     /**
-     * @param  list<ProductPrice>  $prices
+     * @param  LengthAwarePaginator<int, ProductPrice>  $prices
      */
-    public static function collectionForProduct(ProductId $productId, array $prices): AnonymousResourceCollection
+    public static function collectionForProduct(ProductId $productId, LengthAwarePaginator $prices): AnonymousResourceCollection
     {
-        return self::collection(array_map(fn (ProductPrice $price) => self::forProduct($productId, $price), $prices));
+        return self::collection(
+            $prices->through(fn (ProductPrice $price) => self::forProduct($productId, $price))
+        );
     }
 
     public function toArray(Request $request): array

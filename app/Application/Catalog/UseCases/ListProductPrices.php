@@ -6,6 +6,7 @@ use App\Domain\Catalog\Entities\ProductPrice;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
+use App\Domain\Shared\Paginated;
 
 final class ListProductPrices
 {
@@ -14,14 +15,18 @@ final class ListProductPrices
     ) {}
 
     /**
-     * @return list<ProductPrice>
+     * Pages through the prices without loading the whole aggregate.
+     *
+     * @return Paginated<ProductPrice>
      *
      * @throws ProductNotFound
      */
-    public function execute(ProductId $id): array
+    public function execute(ProductId $id, int $page, int $perPage): Paginated
     {
-        $product = $this->products->findById($id) ?? throw new ProductNotFound($id);
+        if (! $this->products->exists($id)) {
+            throw new ProductNotFound($id);
+        }
 
-        return $product->prices();
+        return $this->products->paginatePrices($id, $page, $perPage);
     }
 }

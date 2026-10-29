@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Domain\Currency\Repositories\CurrencyRepository;
+use App\Infrastructure\Currency\Persistence\CachedCurrencyRepository;
 use App\Infrastructure\Currency\Persistence\EloquentCurrencyRepository;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -12,11 +14,13 @@ use Illuminate\Support\ServiceProvider;
 class CurrencyServiceProvider extends ServiceProvider
 {
     /**
-     * All of the container bindings that should be registered.
-     *
-     * @var array<class-string, class-string>
+     * Register services.
      */
-    public array $bindings = [
-        CurrencyRepository::class => EloquentCurrencyRepository::class,
-    ];
+    public function register(): void
+    {
+        $this->app->bind(CurrencyRepository::class, fn ($app) => new CachedCurrencyRepository(
+            $app->make(EloquentCurrencyRepository::class),
+            $app->make(Cache::class),
+        ));
+    }
 }

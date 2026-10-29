@@ -18,16 +18,34 @@ test('it lists the prices of a product', function () {
 
     $this->getJson("/api/products/{$this->product->id}/prices")
         ->assertOk()
-        ->assertExactJson(['data' => [
+        ->assertJsonPath('data', [
             ['id' => $eur->id, 'product_id' => $this->product->id, 'currency_id' => $this->eur->id, 'price' => '92.00'],
             ['id' => $ars->id, 'product_id' => $this->product->id, 'currency_id' => $this->ars->id, 'price' => '150000.50'],
-        ]]);
+        ]);
+});
+
+test('it lists the prices of a product paginated', function () {
+    ProductPriceModel::factory()->for($this->product, 'product')->for($this->eur, 'currency')->create();
+    $ars = ProductPriceModel::factory()->for($this->product, 'product')->for($this->ars, 'currency')->create();
+
+    $this->getJson("/api/products/{$this->product->id}/prices?per_page=1&page=2")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $ars->id)
+        ->assertJsonPath('meta.total', 2);
+});
+
+test('it validates the price pagination parameters', function () {
+    $this->getJson("/api/products/{$this->product->id}/prices?page=0")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('page');
 });
 
 test('a product without prices returns an empty list', function () {
     $this->getJson("/api/products/{$this->product->id}/prices")
         ->assertOk()
-        ->assertExactJson(['data' => []]);
+        ->assertJsonPath('data', [])
+        ->assertJsonPath('meta.total', 0);
 });
 
 test('it registers a price in another currency', function () {

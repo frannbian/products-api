@@ -4,6 +4,7 @@ namespace App\Application\Currency\UseCases;
 
 use App\Domain\Currency\Entities\Currency;
 use App\Domain\Currency\Repositories\CurrencyRepository;
+use App\Domain\Shared\Paginated;
 
 final class ListCurrencies
 {
@@ -12,10 +13,10 @@ final class ListCurrencies
     ) {}
 
     /**
-     * @return list<Currency>
+     * @return Paginated<Currency>
      */
-    public function execute(): array
+    public function execute(int $page, int $perPage): Paginated
     {
-        return $this->currencies->all();
+        return $this->currencies->paginate($page, $perPage);
     }
 }
