@@ -9,10 +9,13 @@ use App\Domain\Identity\Repositories\UserRepository;
 use App\Domain\Identity\Services\PasswordHasher;
 use App\Infrastructure\Identity\Authentication\JwtTokenService;
 use App\Infrastructure\Identity\Authentication\LaravelPasswordResetBroker;
+use App\Infrastructure\Identity\Listeners\SendWelcomeEmail;
 use App\Infrastructure\Identity\Notifications\LaravelEmailVerificationNotifier;
 use App\Infrastructure\Identity\Persistence\EloquentUserRepository;
 use App\Infrastructure\Identity\Security\LaravelPasswordHasher;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -39,6 +42,8 @@ class IdentityServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Event::listen(Registered::class, SendWelcomeEmail::class);
+
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
             return config('app.frontend_url')."/password-reset/$token?email={$notifiable->getEmailForPasswordReset()}";
         });
