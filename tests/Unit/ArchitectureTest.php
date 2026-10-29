@@ -24,6 +24,9 @@ arch('application only uses the framework for auth events')
         'PHPOpenSourceSaver',
     ]);
 
+// Queue jobs are entry points, like controllers: a worker receives a message
+// and runs a use case. Every other infrastructure class only implements
+// contracts and never drives the application.
 arch('infrastructure implements contracts but never drives use cases')
     ->expect('App\Infrastructure')
     ->not->toUse([
@@ -31,7 +34,12 @@ arch('infrastructure implements contracts but never drives use cases')
         'App\Application\Identity\UseCases',
         'App\Application\Catalog\UseCases',
         'App\Application\Currency\UseCases',
-    ]);
+    ])
+    ->ignoring('App\Infrastructure\Catalog\Jobs');
+
+arch('queue jobs never depend on the presentation layer')
+    ->expect('App\Infrastructure\Catalog\Jobs')
+    ->not->toUse('App\Presentation');
 
 arch('presentation delegates to the application layer')
     ->expect('App\Presentation')

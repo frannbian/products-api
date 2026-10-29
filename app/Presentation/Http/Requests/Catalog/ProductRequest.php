@@ -21,6 +21,16 @@ class ProductRequest extends FormRequest
      */
     public function rules(): array
     {
+        return self::fieldRules();
+    }
+
+    /**
+     * Rules of one product, shared with the bulk import.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function fieldRules(): array
+    {
         return [
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:2000'],

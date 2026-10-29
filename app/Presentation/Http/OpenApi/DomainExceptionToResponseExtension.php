@@ -2,6 +2,7 @@
 
 namespace App\Presentation\Http\OpenApi;
 
+use App\Application\Catalog\Exceptions\ImportNotFound;
 use App\Application\Identity\Exceptions\InvalidVerificationLink;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Currency\Exceptions\CurrencyInUse;
@@ -27,6 +28,7 @@ class DomainExceptionToResponseExtension extends ExceptionToResponseExtension
     private const RESPONSES = [
         ProductNotFound::class => [404, 'The product does not exist'],
         CurrencyNotFound::class => [404, 'The currency does not exist'],
+        ImportNotFound::class => [404, 'The import does not exist or belongs to another user'],
         CurrencyInUse::class => [409, 'The currency is used by products'],
         InvalidVerificationLink::class => [403, 'The verification link is invalid'],
     ];

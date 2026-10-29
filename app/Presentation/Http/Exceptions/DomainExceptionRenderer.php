@@ -2,6 +2,7 @@
 
 namespace App\Presentation\Http\Exceptions;
 
+use App\Application\Catalog\Exceptions\ImportNotFound;
 use App\Application\Catalog\Exceptions\UnknownCurrency;
 use App\Application\Identity\Exceptions\InvalidVerificationLink;
 use App\Application\Identity\Exceptions\PasswordResetFailed;
@@ -29,6 +30,7 @@ final class DomainExceptionRenderer
         // 404 Not Found
         $exceptions->map(ProductNotFound::class, fn (ProductNotFound $e) => new NotFoundHttpException(__('catalog.product_not_found'), $e));
         $exceptions->map(CurrencyNotFound::class, fn (CurrencyNotFound $e) => new NotFoundHttpException(__('currency.not_found'), $e));
+        $exceptions->map(ImportNotFound::class, fn (ImportNotFound $e) => new NotFoundHttpException(__('catalog.import_not_found'), $e));
 
         // 409 Conflict
         $exceptions->map(CurrencyInUse::class, fn (CurrencyInUse $e) => new ConflictHttpException(__('currency.in_use'), $e));
