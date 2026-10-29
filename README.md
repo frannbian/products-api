@@ -19,17 +19,91 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 
 ## Puesta en marcha
 
-Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL, Redis y SQS).
+### Requisitos
+
+| Herramienta | Versión | Notas |
+|---|---|---|
+| PHP | 8.3 o superior | Extensiones: `pdo_pgsql`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`, `curl`, `fileinfo`. Recomendada: `pcntl` (sin ella, el worker no puede cortar un job que supera su `timeout`) |
+| Composer | 2.x | |
+| Docker + Docker Compose | Compose v2 (`docker compose`) | Levanta PostgreSQL, Redis y SQS. No hace falta instalarlos en la máquina |
+
+No hace falta Node ni npm: es una API sin frontend.
+
+Para verificar las extensiones: `php -m | grep -iE "pdo_pgsql|mbstring|pcntl"`.
+
+**Puertos que usa el proyecto** (se pueden cambiar en el `.env`):
+
+| Servicio | Puerto | Variable |
+|---|---|---|
+| API (`php artisan serve`) | 8000 | `--port` de `serve` y `APP_URL` |
+| PostgreSQL | 5432 | `DB_PORT` |
+| Redis | 6379 | `REDIS_PORT` |
+| SQS (ElasticMQ) | 9324 (API) y 9325 (estadísticas) | `SQS_PORT`, `SQS_STATS_PORT` y las URLs de `SQS_ENDPOINT`/`SQS_PREFIX` |
+
+### Instalación paso a paso
+
+**1. Clonar y configurar el entorno**
 
 ```bash
-cp .env.example .env               # completar DB_PASSWORD y REDIS_PASSWORD
-docker compose up -d               # PostgreSQL 17 + Redis 7.4 + SQS (ElasticMQ)
-composer setup                     # composer install + APP_KEY + JWT secret + migraciones
-php artisan db:seed                # datos de ejemplo
-php artisan serve                  # http://localhost:8000
+git clone <url-del-repo> products-api
+cd products-api
+cp .env.example .env
 ```
 
-Y en otras terminales, un worker por cola (ver [Mensajería asíncrona](#mensajería-asíncrona)):
+Completar en el `.env` **antes** de levantar Docker:
+
+- `DB_PASSWORD`: cualquier valor. El contenedor de PostgreSQL crea el usuario con esta contraseña y **no arranca si está vacía**.
+- `REDIS_PASSWORD`: cualquier valor. Redis exige esta contraseña.
+
+El resto de los valores por defecto funcionan tal cual en local.
+
+**2. Levantar la infraestructura**
+
+```bash
+docker compose up -d
+docker compose ps        # postgres, redis (healthy) y sqs, todos "Up"
+```
+
+Esto crea:
+
+- **PostgreSQL 17** con la base `DB_DATABASE`.
+- **Redis 7.4** como cache, sin persistencia.
+- **ElasticMQ**, un emulador de SQS, con las colas `default`, `catalog-events`, `imports` y `mail`, cada una con su dead-letter queue.
+
+**3. Instalar y preparar la aplicación**
+
+```bash
+composer setup
+```
+
+Ejecuta, en orden:
+
+1. `composer install`
+2. Genera `APP_KEY`.
+3. Genera `JWT_SECRET`. Si ya existe, no lo cambia, así que se puede correr de nuevo sin invalidar los tokens.
+4. Corre las migraciones.
+
+**4. Cargar datos de ejemplo**
+
+```bash
+php artisan db:seed
+```
+
+Crea:
+
+- El usuario `test@example.com` con contraseña `password`.
+- Cinco divisas: US Dollar (base, tasa 1), Euro, Peso argentino, Real brasileño y Pound sterling.
+- Tres productos con precios en otras divisas.
+
+Se puede correr más de una vez sin duplicar datos.
+
+**5. Levantar la API y los workers**
+
+```bash
+php artisan serve                                  # http://localhost:8000
+```
+
+En **otras cuatro terminales**, un worker por cola (ver [Mensajería asíncrona](#mensajería-asíncrona) para saber por qué uno por cola):
 
 ```bash
 php artisan queue:work sqs --queue=imports
@@ -38,13 +112,93 @@ php artisan queue:work sqs --queue=mail
 php artisan queue:work sqs --queue=default
 ```
 
-Si el puerto 6379 ya está ocupado (por ejemplo, por un Redis instalado en la máquina), cambiá `REDIS_PORT` en el `.env`: el contenedor publica Redis en ese puerto.
+Sin los workers la API funciona igual, pero la importación masiva, el historial de cambios y el email de bienvenida quedan esperando en la cola hasta que alguno arranque.
 
-El seeder crea:
+### Verificar que todo funciona
 
-- Un usuario `test@example.com` con contraseña `password`.
-- Cinco divisas: US Dollar (base, tasa 1), Euro, Peso argentino, Real brasileño y Pound sterling.
-- Tres productos con precios en otras divisas.
+```bash
+# 1. Health check: verifica la base de datos y Redis (200 = todo bien)
+curl -i http://localhost:8000/up
+
+# 2. Login con el usuario del seeder
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "password"}' \
+  | php -r 'echo json_decode(stream_get_contents(STDIN))->access_token;')
+
+# 3. Listar productos
+curl -s http://localhost:8000/api/products -H "Authorization: Bearer $TOKEN"
+
+# 4. Probar una tarea asíncrona: importar un producto y consultar el estado
+curl -s -X POST http://localhost:8000/api/products/import \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"products": [{"name": "Test", "description": "Import", "price": 10, "currency_id": 1, "tax_cost": 1, "manufacturing_cost": 2}]}'
+# → 202 con un id; GET /api/imports/{id} debe pasar a "completed" si los workers están corriendo
+```
+
+Además:
+
+- **Tests:** ver [Tests](#tests). Solo necesitan PostgreSQL.
+- **Emails:** con `MAIL_MAILER=log` no se envían; se escriben en `storage/logs/laravel.log`. Ahí se puede ver el email de bienvenida después de registrar un usuario.
+- **Documentación interactiva:** <http://localhost:8000/docs/api>.
+
+### Variables de entorno relevantes
+
+| Variable | Por defecto | Para qué |
+|---|---|---|
+| `APP_ENV` / `APP_DEBUG` | `local` / `true` | En producción, `production` y `false`: los errores no muestran stack traces y `/docs/api` no se sirve |
+| `APP_URL` | `http://localhost:8000` | URL base de la aplicación. Se usa al generar URLs fuera de una request HTTP, por ejemplo en los workers; dentro de una request, Laravel usa el host de la request |
+| `FRONTEND_URL` | `http://localhost:3000` | Origen permitido por CORS y base de los links de reset de contraseña |
+| `DB_*` | PostgreSQL en `127.0.0.1:5432` | Conexión a la base. `docker-compose.yml` usa los mismos valores para crear la base y el usuario |
+| `JWT_SECRET` | lo genera `composer setup` | Clave que firma los tokens. **Nunca se commitea** |
+| `JWT_TTL` / `JWT_REFRESH_TTL` | `60` / `20160` | Minutos de validez del token y ventana de refresh (2 semanas) |
+| `CACHE_STORE` | `redis` | Store del cache. El rate limiting y las `Idempotency-Key` también viven ahí |
+| `CACHE_TTL_LISTINGS` / `CACHE_TTL_RESOURCES` | `300` / `600` | Segundos que viven en cache los listados y los recursos individuales |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `127.0.0.1` / `6379` / — | Conexión a Redis. `docker-compose.yml` publica Redis en `REDIS_PORT` |
+| `REDIS_CLIENT` | `predis` | `predis` es PHP puro. Con la extensión instalada, `phpredis` es más rápido |
+| `QUEUE_CONNECTION` | `sqs` | Driver de colas |
+| `SQS_ENDPOINT` / `SQS_PREFIX` | ElasticMQ en `localhost:9324` | En AWS: borrar `SQS_ENDPOINT` y poner `SQS_PREFIX=https://sqs.<región>.amazonaws.com/<cuenta>` |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` | `local` / `local` / `us-east-1` | ElasticMQ acepta cualquier valor; en AWS van las credenciales reales |
+| `MAIL_MAILER` | `log` | `log` escribe los emails en `storage/logs/laravel.log`; en producción, `smtp` u otro |
+
+### Comandos útiles
+
+```bash
+php artisan test                                   # todos los tests
+vendor/bin/pint                                    # formatear el código (PSR-12 / Laravel)
+php artisan cache:clear                            # vaciar el cache (por ejemplo, después de tocar la base a mano)
+php artisan queue:failed                           # jobs que agotaron sus reintentos
+php artisan queue:retry all                        # reintentarlos
+php artisan scramble:export --path=docs/openapi.json   # regenerar el OpenAPI exportado
+php artisan migrate:fresh --seed                   # ⚠️ borra todo y recrea la base con datos de ejemplo
+docker compose down                                # detener los contenedores (los datos de PostgreSQL se conservan)
+docker compose down -v                             # detener y borrar los datos
+```
+
+### Solución de problemas
+
+| Síntoma | Causa y solución |
+|---|---|
+| `docker compose up` falla con *port is already allocated* | El puerto está ocupado, por ejemplo por un PostgreSQL o un Redis instalado en la máquina. Cambiar `DB_PORT`, `REDIS_PORT` o `SQS_PORT` en el `.env` y volver a correr `docker compose up -d` |
+| *Conflict. The container name "/postgres" is already in use* | Ya existe un contenedor con ese nombre de otro proyecto. Detenerlo (`docker stop postgres`) o renombrar `container_name` en `docker-compose.yml` |
+| El contenedor `postgres` se reinicia o sale con *superuser password is not specified* | `DB_PASSWORD` está vacío. Completarlo y correr `docker compose down -v && docker compose up -d` |
+| `/up` o cualquier endpoint responde **503** con `Retry-After` | La API no llega a PostgreSQL o a Redis. Revisar `docker compose ps` y que `DB_*` / `REDIS_*` coincidan con los contenedores |
+| Redis responde *NOAUTH* o *WRONGPASS* | `REDIS_PASSWORD` del `.env` no coincide con el que tenía el contenedor al crearse. Recrearlo: `docker compose up -d --force-recreate redis` |
+| El login responde **500** | Falta `JWT_SECRET`. Correr `php artisan jwt:secret` |
+| El login con `test@example.com` responde **422** | La base ya tenía ese usuario con otra contraseña; el seeder no pisa usuarios existentes. Usar otro usuario o `php artisan migrate:fresh --seed` (borra los datos) |
+| La importación queda en `pending` o el historial está vacío | No hay workers corriendo para esa cola. Iniciarlos (paso 5) |
+| Los workers tardan hasta 20 s en tomar mensajes | Se está usando un solo worker para varias colas (`--queue=a,b,c`). Usar uno por cola |
+| Un cambio hecho a mano en la base no aparece en la API | El cache Redis lo sirve hasta que vence el TTL. Correr `php artisan cache:clear` |
+| *could not find driver* | Falta la extensión `pdo_pgsql` de PHP |
+
+### En producción
+
+- `APP_ENV=production`, `APP_DEBUG=false` y un `APP_URL` real.
+- Optimizar al desplegar: `php artisan optimize` (cachea configuración, rutas y eventos).
+- Correr las migraciones con `php artisan migrate --force`. Los seeders son solo para desarrollo.
+- Workers administrados por Supervisor: la configuración, un programa por cola, está en [`docker/supervisor/queue-workers.conf`](docker/supervisor/queue-workers.conf). Después de cada deploy, `php artisan queue:restart`.
+- SQS: usar AWS SQS creando las mismas colas y DLQs que [`docker/elasticmq/elasticmq.conf`](docker/elasticmq/elasticmq.conf). Visibility timeout de 360 s en `imports` y 90 s en las demás, long polling de 20 s y redrive a la DLQ después de 5 recepciones. Configurar `SQS_PREFIX` y credenciales reales, y borrar `SQS_ENDPOINT`.
+- Redis y PostgreSQL administrados (por ejemplo ElastiCache y RDS). Redis es obligatorio: guarda el rate limiting y las idempotency keys.
 
 ### Documentación interactiva (OpenAPI)
 
@@ -397,11 +551,15 @@ Aunque el dominio está desacoplado, el proyecto usa lo que Laravel ya resuelve:
 php artisan test        # o: vendor/bin/pest
 ```
 
-Los tests usan una base PostgreSQL separada, `beos_challange_test`; hay que crearla una vez:
+Los tests usan una base PostgreSQL separada, `beos_challange_test`, con el mismo usuario y contraseña del `.env`. Hay que crearla una vez, con los contenedores levantados:
 
 ```bash
+docker exec postgres psql -U <DB_USERNAME> -d <DB_DATABASE> -c "CREATE DATABASE beos_challange_test;"
+# con los valores por defecto del .env.example:
 docker exec postgres psql -U root -d beos_challange -c "CREATE DATABASE beos_challange_test;"
 ```
+
+Solo necesitan PostgreSQL: en los tests el cache es en memoria, las colas corren en el momento (`sync`) y los emails no se envían (`phpunit.xml`). No hace falta que Redis, ElasticMQ ni los workers estén corriendo.
 
 - **Unit:** value objects, entidades, DTOs y use cases (con repositorios en memoria, sin base de datos), y las reglas de arquitectura.
 - **Feature:** cada endpoint con sus validaciones, códigos de estado y casos borde; la seguridad (401, rate limit, headers, mass assignment); los repositorios Eloquent y los adapters contra la base real; los seeders.
