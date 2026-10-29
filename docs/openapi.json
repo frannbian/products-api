@@ -408,12 +408,6 @@
                     }
                 },
                 "responses": {
-                    "401": {
-                        "$ref": "#/components/responses/AuthenticationException"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationException"
-                    },
                     "201": {
                         "description": "Currency created",
                         "content": {
@@ -430,15 +424,13 @@
                                     ]
                                 }
                             }
-                        },
-                        "headers": {
-                            "ETag": {
-                                "description": "Version of the currency, to use in If-Match and If-None-Match.",
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
                         }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             }
@@ -446,7 +438,7 @@
         "/currencies/{currency}": {
             "get": {
                 "operationId": "currencies.show",
-                "description": "The ETag header holds the currency version, usable in If-None-Match\nand If-Match.",
+                "description": "Send the ETag back in If-None-Match to get a 304 when nothing changed.",
                 "summary": "Get a currency",
                 "tags": [
                     "Currency"
@@ -471,17 +463,25 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "",
+                        "description": "`CurrencyResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/CurrencyResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
                                 }
                             }
                         },
                         "headers": {
                             "ETag": {
-                                "description": "Version of the currency, to use in If-Match and If-None-Match.",
+                                "description": "Fingerprint of the response, to send back in If-None-Match.",
                                 "schema": {
                                     "type": "string"
                                 }
@@ -495,7 +495,7 @@
                         "$ref": "#/components/responses/AuthenticationException"
                     },
                     "304": {
-                        "description": "Not modified: the version in If-None-Match is the current one",
+                        "description": "Not modified: the ETag in If-None-Match is still current",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -508,7 +508,7 @@
             },
             "put": {
                 "operationId": "currencies.update",
-                "description": "Send the ETag you read in If-Match: a different version responds 412.",
+                "description": "Concurrent updates of the same currency are applied one after the other.",
                 "summary": "Replace every field of a currency",
                 "tags": [
                     "Currency"
@@ -520,14 +520,6 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "If-Match",
-                        "in": "header",
-                        "description": "ETag you read: the update only succeeds if the currency still has that version (412 otherwise).",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -543,31 +535,25 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "",
+                        "description": "`CurrencyResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
-                                }
-                            }
-                        },
-                        "headers": {
-                            "ETag": {
-                                "description": "New version of the currency.",
-                                "schema": {
-                                    "type": "string"
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/CurrencyResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
                                 }
                             }
                         }
                     },
-                    "412": {
-                        "$ref": "#/components/responses/StaleVersion"
-                    },
                     "404": {
                         "$ref": "#/components/responses/CurrencyNotFound"
-                    },
-                    "409": {
-                        "$ref": "#/components/responses/ConcurrencyConflict"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -946,12 +932,6 @@
                     }
                 },
                 "responses": {
-                    "401": {
-                        "$ref": "#/components/responses/AuthenticationException"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationException"
-                    },
                     "201": {
                         "description": "Product created",
                         "content": {
@@ -968,15 +948,13 @@
                                     ]
                                 }
                             }
-                        },
-                        "headers": {
-                            "ETag": {
-                                "description": "Version of the product, to use in If-Match and If-None-Match.",
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
                         }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             }
@@ -984,7 +962,7 @@
         "/products/{product}": {
             "get": {
                 "operationId": "products.show",
-                "description": "The ETag header holds the product version: send it back in If-None-Match\nto get a 304 when nothing changed, or in If-Match when updating.",
+                "description": "Send the ETag back in If-None-Match to get a 304 when nothing changed.",
                 "summary": "Get a product",
                 "tags": [
                     "Product"
@@ -1009,17 +987,25 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "",
+                        "description": "`ProductResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/ProductResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
                                 }
                             }
                         },
                         "headers": {
                             "ETag": {
-                                "description": "Version of the product, to use in If-Match and If-None-Match.",
+                                "description": "Fingerprint of the response, to send back in If-None-Match.",
                                 "schema": {
                                     "type": "string"
                                 }
@@ -1033,7 +1019,7 @@
                         "$ref": "#/components/responses/AuthenticationException"
                     },
                     "304": {
-                        "description": "Not modified: the version in If-None-Match is the current one",
+                        "description": "Not modified: the ETag in If-None-Match is still current",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1046,7 +1032,7 @@
             },
             "put": {
                 "operationId": "products.update",
-                "description": "Send the ETag you read in If-Match to make sure nobody changed the\nproduct in between: a different version responds 412.",
+                "description": "Concurrent updates of the same product are applied one after the other.",
                 "summary": "Replace every field of a product",
                 "tags": [
                     "Product"
@@ -1058,14 +1044,6 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "If-Match",
-                        "in": "header",
-                        "description": "ETag you read: the update only succeeds if the product still has that version (412 otherwise).",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -1081,31 +1059,25 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "",
+                        "description": "`ProductResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object"
-                                }
-                            }
-                        },
-                        "headers": {
-                            "ETag": {
-                                "description": "New version of the product.",
-                                "schema": {
-                                    "type": "string"
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/ProductResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
                                 }
                             }
                         }
                     },
-                    "412": {
-                        "$ref": "#/components/responses/StaleVersion"
-                    },
                     "404": {
                         "$ref": "#/components/responses/ProductNotFound"
-                    },
-                    "409": {
-                        "$ref": "#/components/responses/ConcurrencyConflict"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -1331,7 +1303,7 @@
             },
             "post": {
                 "operationId": "products.prices.store",
-                "description": "Responds 201 when the price is new and 200 when it replaces the\nexisting one. Retried automatically when another request modifies the\nproduct at the same time.",
+                "description": "Responds 201 when the price is new and 200 when it replaces the\nexisting one. Concurrent requests for the same product are applied one\nafter the other.",
                 "summary": "Register the price of a product in a currency",
                 "tags": [
                     "ProductPrice"
@@ -1377,9 +1349,6 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/ProductNotFound"
-                    },
-                    "409": {
-                        "$ref": "#/components/responses/ConcurrencyConflict"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -1818,44 +1787,6 @@
             },
             "ProductNotFound": {
                 "description": "The product does not exist",
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "message": {
-                                    "type": "string",
-                                    "description": "Error overview."
-                                }
-                            },
-                            "required": [
-                                "message"
-                            ]
-                        }
-                    }
-                }
-            },
-            "StaleVersion": {
-                "description": "If-Match does not hold the current version",
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "message": {
-                                    "type": "string",
-                                    "description": "Error overview."
-                                }
-                            },
-                            "required": [
-                                "message"
-                            ]
-                        }
-                    }
-                }
-            },
-            "ConcurrencyConflict": {
-                "description": "Modified by another request at the same time",
                 "content": {
                     "application/json": {
                         "schema": {

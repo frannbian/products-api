@@ -8,7 +8,6 @@ use App\Domain\Currency\Exceptions\CurrencyNameAlreadyTaken;
 use App\Domain\Currency\Repositories\CurrencyRepository;
 use App\Domain\Currency\ValueObjects\CurrencyId;
 use App\Domain\Currency\ValueObjects\CurrencyName;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 use App\Infrastructure\Currency\Persistence\Eloquent\CurrencyMapper;
 use App\Infrastructure\Currency\Persistence\Eloquent\CurrencyModel;
@@ -39,6 +38,13 @@ final class EloquentCurrencyRepository implements CurrencyRepository
         return $model ? CurrencyMapper::toDomain($model) : null;
     }
 
+    public function findByIdForUpdate(CurrencyId $id): ?Currency
+    {
+        $model = CurrencyModel::query()->whereKey($id->value())->lockForUpdate()->first();
+
+        return $model ? CurrencyMapper::toDomain($model) : null;
+    }
+
     public function exists(CurrencyId $id): bool
     {
         return CurrencyModel::query()->whereKey($id->value())->exists();
@@ -62,30 +68,15 @@ final class EloquentCurrencyRepository implements CurrencyRepository
         }
     }
 
-    /**
-     * @throws ConcurrencyConflict
-     */
     private function write(Currency $currency): Currency
     {
-        if ($currency->id() === null) {
-            return CurrencyMapper::toDomain(
-                CurrencyModel::query()->forceCreate([...CurrencyMapper::attributes($currency), 'version' => 1])
-            );
-        }
+        $model = $currency->id() === null
+            ? new CurrencyModel
+            : CurrencyModel::query()->findOrFail($currency->id()->value());
 
-        $id = $currency->id()->value();
+        $model->fill(CurrencyMapper::attributes($currency))->save();
 
-        // Optimistic locking: only written if the row still has the version that was read.
-        $updated = CurrencyModel::query()
-            ->whereKey($id)
-            ->where('version', $currency->version())
-            ->update([...CurrencyMapper::attributes($currency), 'version' => $currency->version() + 1]);
-
-        if ($updated === 0) {
-            throw new ConcurrencyConflict('currency', $id);
-        }
-
-        return CurrencyMapper::toDomain(CurrencyModel::query()->findOrFail($id));
+        return CurrencyMapper::toDomain($model);
     }
 
     public function delete(CurrencyId $id): void

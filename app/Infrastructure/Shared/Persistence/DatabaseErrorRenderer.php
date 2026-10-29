@@ -26,6 +26,8 @@ final class DatabaseErrorRenderer
         $exceptions->map(PDOException::class, fn (PDOException $e) => match (true) {
             // The database is unreachable: a temporary condition the client can retry.
             PostgresError::isConnectionFailure($e) => self::unavailable($e),
+            // Another request held the row lock for too long: safe to retry.
+            PostgresError::isLockTimeout($e) => new ConflictHttpException(__('http.lock_timeout'), $e),
             $e instanceof UniqueConstraintViolationException,
             $e instanceof QueryException && PostgresError::isForeignKeyViolation($e) => new ConflictHttpException(__('http.constraint_conflict'), $e),
             default => $e,

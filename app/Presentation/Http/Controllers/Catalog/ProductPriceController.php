@@ -32,8 +32,8 @@ class ProductPriceController extends Controller
      * Register the price of a product in a currency.
      *
      * Responds 201 when the price is new and 200 when it replaces the
-     * existing one. Retried automatically when another request modifies the
-     * product at the same time.
+     * existing one. Concurrent requests for the same product are applied one
+     * after the other.
      *
      * @status 201
      */

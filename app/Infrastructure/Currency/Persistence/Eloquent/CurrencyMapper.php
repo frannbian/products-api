@@ -17,7 +17,6 @@ final class CurrencyMapper
             new CurrencyName($model->name),
             new CurrencySymbol($model->symbol),
             new ExchangeRate($model->exchange_rate),
-            $model->version,
         );
     }
 

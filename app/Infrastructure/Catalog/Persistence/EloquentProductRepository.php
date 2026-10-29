@@ -6,7 +6,6 @@ use App\Domain\Catalog\Entities\Product;
 use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Currency\ValueObjects\CurrencyId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductMapper;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductModel;
@@ -37,6 +36,14 @@ final class EloquentProductRepository implements ProductRepository
         return $model ? ProductMapper::toDomain($model) : null;
     }
 
+    public function findByIdForUpdate(ProductId $id): ?Product
+    {
+        // SELECT ... FOR UPDATE on the product row only: the aggregate root lock.
+        $model = ProductModel::query()->whereKey($id->value())->lockForUpdate()->first();
+
+        return $model ? ProductMapper::toDomain($model->load('prices')) : null;
+    }
+
     public function exists(ProductId $id): bool
     {
         return ProductModel::query()->whereKey($id->value())->exists();
@@ -59,11 +66,14 @@ final class EloquentProductRepository implements ProductRepository
 
     public function save(Product $product): Product
     {
-        // Retried by Laravel when the database aborts it on a deadlock.
+        // Product and prices are written atomically. Inside a use case this
+        // joins its transaction, keeping the lock taken by findByIdForUpdate.
         return DB::transaction(function () use ($product) {
             $model = $product->id() === null
-                ? ProductModel::query()->forceCreate([...ProductMapper::attributes($product), 'version' => 1])
-                : $this->updateIfUnchanged($product);
+                ? new ProductModel
+                : ProductModel::query()->findOrFail($product->id()->value());
+
+            $model->fill(ProductMapper::attributes($product))->save();
 
             foreach ($product->prices() as $price) {
                 ProductPriceModel::query()->updateOrCreate(
@@ -73,29 +83,7 @@ final class EloquentProductRepository implements ProductRepository
             }
 
             return ProductMapper::toDomain($model->load('prices'));
-        }, attempts: 3);
-    }
-
-    /**
-     * Optimistic locking: the row is only written if it still has the version
-     * that was read, in a single atomic statement.
-     *
-     * @throws ConcurrencyConflict
-     */
-    private function updateIfUnchanged(Product $product): ProductModel
-    {
-        $id = $product->id()->value();
-
-        $updated = ProductModel::query()
-            ->whereKey($id)
-            ->where('version', $product->version())
-            ->update([...ProductMapper::attributes($product), 'version' => $product->version() + 1]);
-
-        if ($updated === 0) {
-            throw new ConcurrencyConflict('product', $id);
-        }
-
-        return ProductModel::query()->findOrFail($id);
+        });
     }
 
     public function delete(ProductId $id): void

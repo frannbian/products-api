@@ -8,9 +8,7 @@ return [
     |--------------------------------------------------------------------------
     */
 
-    'stale_version' => 'The resource was modified since you read it. Get the latest version and try again.',
-    'invalid_if_match' => 'The If-Match header must be an ETag returned by the API.',
-    'concurrency_conflict' => 'The resource was modified by another request at the same time. Try again.',
+    'lock_timeout' => 'The resource is being modified by another request. Try again.',
     'constraint_conflict' => 'The request conflicts with the current state of the data.',
     'service_unavailable' => 'The service is temporarily unavailable. Try again later.',
 

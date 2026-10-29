@@ -24,7 +24,6 @@ final class ProductMapper
             new Amount($model->tax_cost),
             new Amount($model->manufacturing_cost),
             $model->prices->map(self::priceToDomain(...))->all(),
-            $model->version,
         );
     }
 

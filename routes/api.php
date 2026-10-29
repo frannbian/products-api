@@ -45,13 +45,13 @@ Route::prefix('auth')->group(function () {
 });
 
 // Idempotency runs after auth so keys are scoped to the authenticated user.
-// Listings use 'cache.headers:private;etag': an ETag from their content and a
-// 304 when unchanged. Private, as responses depend on the authenticated user.
+// GET routes use 'cache.headers:private;etag': an ETag from their content and
+// a 304 when unchanged. Private, as responses depend on the authenticated user.
 Route::middleware(['auth:api', EnsureIdempotency::class])->group(function () {
     Route::controller(ProductController::class)->prefix('products')->name('products.')->group(function () {
         Route::get('/', 'index')->middleware('cache.headers:private;etag')->name('index');
         Route::post('/', 'store')->name('store');
-        Route::get('/{product}', 'show')->name('show');
+        Route::get('/{product}', 'show')->middleware('cache.headers:private;etag')->name('show');
         Route::put('/{product}', 'update')->name('update');
         Route::delete('/{product}', 'destroy')->name('destroy');
     });
@@ -64,7 +64,7 @@ Route::middleware(['auth:api', EnsureIdempotency::class])->group(function () {
     Route::controller(CurrencyController::class)->prefix('currencies')->name('currencies.')->group(function () {
         Route::get('/', 'index')->middleware('cache.headers:private;etag')->name('index');
         Route::post('/', 'store')->name('store');
-        Route::get('/{currency}', 'show')->name('show');
+        Route::get('/{currency}', 'show')->middleware('cache.headers:private;etag')->name('show');
         Route::put('/{currency}', 'update')->name('update');
         Route::delete('/{currency}', 'destroy')->name('destroy');
     });

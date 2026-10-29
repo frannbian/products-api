@@ -56,3 +56,10 @@ test('reads that need fresh data always go to the database', function () {
 
     expect($this->repository->findById(new CurrencyId($model->id))->name()->value())->toBe('Euro (EU)');
 });
+
+test('loading for update always goes to the database', function () {
+    $model = CurrencyModel::factory()->create();
+    $this->repository->exists(new CurrencyId($model->id));
+
+    expect(queriesDuring(fn () => $this->repository->findByIdForUpdate(new CurrencyId($model->id))))->toBe(1);
+});

@@ -2,6 +2,7 @@
 
 namespace App\Application\Catalog\UseCases;
 
+use App\Application\Shared\Contracts\TransactionManager;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
@@ -10,6 +11,7 @@ final class DeleteProduct
 {
     public function __construct(
         private ProductRepository $products,
+        private TransactionManager $transactions,
     ) {}
 
     /**
@@ -17,10 +19,12 @@ final class DeleteProduct
      */
     public function execute(ProductId $id): void
     {
-        if ($this->products->findById($id) === null) {
-            throw new ProductNotFound($id);
-        }
+        $this->transactions->run(function () use ($id) {
+            if ($this->products->findByIdForUpdate($id) === null) {
+                throw new ProductNotFound($id);
+            }
 
-        $this->products->delete($id);
+            $this->products->delete($id);
+        });
     }
 }

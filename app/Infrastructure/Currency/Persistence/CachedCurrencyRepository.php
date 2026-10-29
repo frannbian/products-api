@@ -14,8 +14,8 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  *
  * Only that check is cached, and only positive answers: currencies are
  * rarely deleted, and if the cache lags behind a deletion the foreign key
- * still rejects the write. Entities are never cached, so optimistic locking
- * always compares against the real stored version.
+ * still rejects the write. Entities are never cached: reads and locks always
+ * see the stored data.
  */
 final class CachedCurrencyRepository implements CurrencyRepository
 {
@@ -56,6 +56,11 @@ final class CachedCurrencyRepository implements CurrencyRepository
     public function findById(CurrencyId $id): ?Currency
     {
         return $this->inner->findById($id);
+    }
+
+    public function findByIdForUpdate(CurrencyId $id): ?Currency
+    {
+        return $this->inner->findByIdForUpdate($id);
     }
 
     public function existsByName(CurrencyName $name, ?CurrencyId $except = null): bool

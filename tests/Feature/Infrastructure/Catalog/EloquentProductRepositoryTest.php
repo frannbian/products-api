@@ -6,11 +6,11 @@ use App\Domain\Catalog\ValueObjects\ProductDescription;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Catalog\ValueObjects\ProductName;
 use App\Domain\Currency\ValueObjects\CurrencyId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductModel;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductPriceModel;
 use App\Infrastructure\Catalog\Persistence\EloquentProductRepository;
 use App\Infrastructure\Currency\Persistence\Eloquent\CurrencyModel;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     $this->repository = new EloquentProductRepository;
@@ -149,24 +149,48 @@ test('it paginates the prices of a product ordered by id', function () {
         ->and($page->items[0]->amount()->value())->toBe('1000.00');
 });
 
-test('saving an existing product bumps its version', function () {
-    $product = $this->repository->save(draftProduct($this->usd->id));
-    $product->setPriceIn(new CurrencyId($this->eur->id), new Amount('92'));
+function lockingQueries(Closure $callback): array
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $callback();
+    DB::disableQueryLog();
 
-    $saved = $this->repository->save($product);
+    return array_values(array_filter(
+        array_column(DB::getQueryLog(), 'query'),
+        fn (string $sql) => str_contains($sql, 'for update'),
+    ));
+}
 
-    expect($product->version())->toBe(1)
-        ->and($saved->version())->toBe(2)
-        ->and(ProductModel::find($saved->id()->value())->version)->toBe(2);
+test('loading a product for update locks its row', function () {
+    $model = ProductModel::factory()->for($this->usd, 'currency')->create();
+    ProductPriceModel::factory()->for($model, 'product')->for($this->eur, 'currency')->create();
+    $product = null;
+
+    $locks = lockingQueries(function () use ($model, &$product) {
+        $product = $this->repository->findByIdForUpdate(new ProductId($model->id));
+    });
+
+    expect($locks)->toHaveCount(1)
+        ->and($locks[0])->toContain('"products"')
+        ->and($product->id()->value())->toBe($model->id)
+        ->and($product->prices())->toHaveCount(1);
 });
 
-test('saving a stale copy fails and changes nothing', function () {
+test('loading a missing or deleted product for update returns null', function () {
+    $deleted = ProductModel::factory()->for($this->usd, 'currency')->create();
+    $deleted->delete();
+
+    expect($this->repository->findByIdForUpdate(new ProductId($deleted->id)))->toBeNull()
+        ->and($this->repository->findByIdForUpdate(new ProductId(999)))->toBeNull();
+});
+
+test('saving an existing product persists its changes', function () {
     $product = $this->repository->save(draftProduct($this->usd->id));
-    $stale = $this->repository->findById($product->id());
+    $product->update($product->name(), $product->description(), new Amount('77'), $product->currencyId(), $product->taxCost(), $product->manufacturingCost());
+
     $this->repository->save($product);
 
-    $stale->setPriceIn(new CurrencyId($this->eur->id), new Amount('92'));
-
-    expect(fn () => $this->repository->save($stale))->toThrow(ConcurrencyConflict::class)
-        ->and(ProductPriceModel::count())->toBe(0);
+    expect(ProductModel::find($product->id()->value())->price)->toBe('77.00')
+        ->and(ProductModel::count())->toBe(1);
 });

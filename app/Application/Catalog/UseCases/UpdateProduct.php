@@ -5,14 +5,13 @@ namespace App\Application\Catalog\UseCases;
 use App\Application\Catalog\Concerns\EnsuresCurrencyExists;
 use App\Application\Catalog\DTOs\ProductData;
 use App\Application\Catalog\Exceptions\UnknownCurrency;
-use App\Application\Shared\Exceptions\StaleVersion;
+use App\Application\Shared\Contracts\TransactionManager;
 use App\Domain\Catalog\Entities\Product;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Currency\Repositories\CurrencyRepository;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 
 final class UpdateProduct
 {
@@ -21,34 +20,34 @@ final class UpdateProduct
     public function __construct(
         private ProductRepository $products,
         private CurrencyRepository $currencies,
+        private TransactionManager $transactions,
     ) {}
 
     /**
-     * @param  int|null  $expectedVersion  Version the client read; null skips the check.
+     * The product stays locked from reading to saving, so concurrent writes
+     * are applied one after the other.
      *
      * @throws ProductNotFound
-     * @throws StaleVersion
      * @throws UnknownCurrency
      * @throws PriceInBaseCurrency
-     * @throws ConcurrencyConflict
      */
-    public function execute(ProductId $id, ProductData $data, ?int $expectedVersion = null): Product
+    public function execute(ProductId $id, ProductData $data): Product
     {
-        $product = $this->products->findById($id) ?? throw new ProductNotFound($id);
-
-        StaleVersion::check($expectedVersion, $product->version());
-
         $this->ensureCurrencyExists($data->currencyId);
 
-        $product->update(
-            $data->name,
-            $data->description,
-            $data->price,
-            $data->currencyId,
-            $data->taxCost,
-            $data->manufacturingCost,
-        );
+        return $this->transactions->run(function () use ($id, $data) {
+            $product = $this->products->findByIdForUpdate($id) ?? throw new ProductNotFound($id);
 
-        return $this->products->save($product);
+            $product->update(
+                $data->name,
+                $data->description,
+                $data->price,
+                $data->currencyId,
+                $data->taxCost,
+                $data->manufacturingCost,
+            );
+
+            return $this->products->save($product);
+        });
     }
 }

@@ -3,11 +3,9 @@
 namespace App\Presentation\Http\OpenApi;
 
 use App\Application\Identity\Exceptions\InvalidVerificationLink;
-use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Currency\Exceptions\CurrencyInUse;
 use App\Domain\Currency\Exceptions\CurrencyNotFound;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use Dedoc\Scramble\Extensions\ExceptionToResponseExtension;
 use Dedoc\Scramble\Support\Generator\Reference;
 use Dedoc\Scramble\Support\Generator\Response;
@@ -31,8 +29,6 @@ class DomainExceptionToResponseExtension extends ExceptionToResponseExtension
         CurrencyNotFound::class => [404, 'The currency does not exist'],
         CurrencyInUse::class => [409, 'The currency is used by products'],
         InvalidVerificationLink::class => [403, 'The verification link is invalid'],
-        StaleVersion::class => [412, 'If-Match does not hold the current version'],
-        ConcurrencyConflict::class => [409, 'Modified by another request at the same time'],
     ];
 
     public function shouldHandle(Type $type): bool

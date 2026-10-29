@@ -6,7 +6,6 @@ use App\Domain\Catalog\Entities\Product;
 use App\Domain\Catalog\Entities\ProductPrice;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Currency\ValueObjects\CurrencyId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 
 interface ProductRepository
@@ -18,6 +17,13 @@ interface ProductRepository
 
     public function findById(ProductId $id): ?Product;
 
+    /**
+     * Loads the product and locks it until the current transaction ends, so
+     * concurrent writers wait instead of overwriting each other. Every change
+     * to its prices goes through the product, so this lock covers them too.
+     */
+    public function findByIdForUpdate(ProductId $id): ?Product;
+
     public function exists(ProductId $id): bool;
 
     /**
@@ -27,9 +33,7 @@ interface ProductRepository
 
     /**
      * Persists the product with its prices and returns it with every
-     * identity assigned and its version incremented.
-     *
-     * @throws ConcurrencyConflict when the stored version is not the one that was read.
+     * identity assigned.
      */
     public function save(Product $product): Product;
 

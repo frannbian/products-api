@@ -39,3 +39,9 @@ test('an untranslated foreign key violation responds 409', function () {
         ->assertConflict()
         ->assertJson(['message' => __('http.constraint_conflict')]);
 });
+
+test('waiting too long for a lock responds 409 so the client can retry', function () {
+    $this->getJson(routeThrowing(queryException('55P03')))
+        ->assertConflict()
+        ->assertJson(['message' => __('http.lock_timeout')]);
+});

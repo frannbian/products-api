@@ -16,7 +16,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property int $id
- * @property int $version
  * @property string $name
  * @property string $description
  * @property string $price

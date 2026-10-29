@@ -9,7 +9,7 @@ beforeEach(function () {
     $this->product = ProductModel::factory()->for($this->usd, 'currency')->create();
 });
 
-test('listings respond 304 while their content does not change', function (string $uri) {
+test('listings and single resources respond 304 while their content does not change', function (string $uri) {
     $etag = $this->getJson($uri)->assertOk()->headers->get('ETag');
 
     expect($etag)->not->toBeNull();
@@ -19,7 +19,19 @@ test('listings respond 304 while their content does not change', function (strin
     '/api/products',
     '/api/currencies',
     fn () => "/api/products/{$this->product->id}/prices",
+    fn () => "/api/products/{$this->product->id}",
+    fn () => "/api/currencies/{$this->usd->id}",
 ]);
+
+test('a single resource returns content again after it changed', function () {
+    $etag = $this->getJson("/api/products/{$this->product->id}")->headers->get('ETag');
+
+    $this->product->update(['name' => 'Renamed']);
+
+    $this->getJson("/api/products/{$this->product->id}", ['If-None-Match' => $etag])
+        ->assertOk()
+        ->assertJsonPath('data.name', 'Renamed');
+});
 
 test('a listing returns content again when it changed', function () {
     $etag = $this->getJson('/api/products')->headers->get('ETag');

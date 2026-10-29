@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Application\Shared\Contracts\TransactionManager;
 use App\Infrastructure\Shared\Health\DatabaseHealthCheck;
+use App\Infrastructure\Shared\Persistence\DatabaseTransactionManager;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
@@ -16,6 +18,15 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
+    /**
+     * All of the container bindings that should be registered.
+     *
+     * @var array<class-string, class-string>
+     */
+    public array $bindings = [
+        TransactionManager::class => DatabaseTransactionManager::class,
+    ];
+
     /**
      * Register any application services.
      */

@@ -42,8 +42,8 @@ test('POST endpoints document the Idempotency-Key header', function (string $pat
     expect(headerParameters(operation('post', $path)))->toContain('Idempotency-Key');
 })->with(['/products', '/currencies', '/products/{product}/prices']);
 
-test('updates document the If-Match header', function (string $path) {
-    expect(headerParameters(operation('put', $path)))->toContain('If-Match');
+test('updates do not document optimistic locking headers', function (string $path) {
+    expect(headerParameters(operation('put', $path)))->not->toContain('If-Match');
 })->with(['/products/{product}', '/currencies/{currency}']);
 
 test('single resources document the ETag response header and If-None-Match', function (string $path) {

@@ -7,10 +7,10 @@ use App\Domain\Currency\ValueObjects\CurrencyId;
 use App\Domain\Currency\ValueObjects\CurrencyName;
 use App\Domain\Currency\ValueObjects\CurrencySymbol;
 use App\Domain\Currency\ValueObjects\ExchangeRate;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductModel;
 use App\Infrastructure\Currency\Persistence\Eloquent\CurrencyModel;
 use App\Infrastructure\Currency\Persistence\EloquentCurrencyRepository;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     $this->repository = new EloquentCurrencyRepository;
@@ -79,17 +79,6 @@ test('it deletes a currency', function () {
     expect(CurrencyModel::find($model->id))->toBeNull();
 });
 
-test('saving an existing currency bumps its version and rejects stale copies', function () {
-    $model = CurrencyModel::factory()->create();
-    $current = $this->repository->findById(new CurrencyId($model->id));
-    $stale = $this->repository->findById(new CurrencyId($model->id));
-
-    $saved = $this->repository->save($current);
-
-    expect($saved->version())->toBe(2)
-        ->and(fn () => $this->repository->save($stale))->toThrow(ConcurrencyConflict::class);
-});
-
 test('a duplicate name that slips past the check is reported as taken', function () {
     CurrencyModel::factory()->create(['name' => 'Euro']);
 
@@ -117,4 +106,28 @@ test('it knows whether a currency exists', function () {
 
     expect($this->repository->exists(new CurrencyId($model->id)))->toBeTrue()
         ->and($this->repository->exists(new CurrencyId(999)))->toBeFalse();
+});
+
+function currencyLockingQueries(Closure $callback): array
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $callback();
+    DB::disableQueryLog();
+
+    return array_values(array_filter(array_column(DB::getQueryLog(), 'query'), fn (string $sql) => str_contains($sql, 'for update')));
+}
+
+test('loading a currency for update locks its row', function () {
+    $model = CurrencyModel::factory()->create(['name' => 'Euro']);
+    $currency = null;
+
+    $locks = currencyLockingQueries(function () use ($model, &$currency) {
+        $currency = $this->repository->findByIdForUpdate(new CurrencyId($model->id));
+    });
+
+    expect($locks)->toHaveCount(1)
+        ->and($locks[0])->toContain('"currencies"')
+        ->and($currency->name()->value())->toBe('Euro')
+        ->and($this->repository->findByIdForUpdate(new CurrencyId(999)))->toBeNull();
 });

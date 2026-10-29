@@ -8,7 +8,6 @@ use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Catalog\ValueObjects\ProductPriceId;
 use App\Domain\Currency\ValueObjects\CurrencyId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 
 final class InMemoryProductRepository implements ProductRepository
@@ -22,6 +21,13 @@ final class InMemoryProductRepository implements ProductRepository
     private int $nextId = 1;
 
     private int $nextPriceId = 1;
+
+    /** @var list<array{id: int, inTransaction: bool}> */
+    public array $locks = [];
+
+    public function __construct(
+        private ?FakeTransactionManager $transactions = null,
+    ) {}
 
     public function paginate(int $page, int $perPage): Paginated
     {
@@ -40,6 +46,13 @@ final class InMemoryProductRepository implements ProductRepository
         return $this->products[$id->value()] ?? null;
     }
 
+    public function findByIdForUpdate(ProductId $id): ?Product
+    {
+        $this->locks[] = ['id' => $id->value(), 'inTransaction' => (bool) $this->transactions?->active()];
+
+        return $this->findById($id);
+    }
+
     public function exists(ProductId $id): bool
     {
         return isset($this->products[$id->value()]);
@@ -54,10 +67,6 @@ final class InMemoryProductRepository implements ProductRepository
 
     public function save(Product $product): Product
     {
-        if ($product->id() !== null && $this->products[$product->id()->value()]?->version() !== $product->version()) {
-            throw new ConcurrencyConflict('product', $product->id()->value());
-        }
-
         $product = Product::reconstitute(
             $product->id() ?? new ProductId($this->nextId++),
             $product->name(),
@@ -69,7 +78,6 @@ final class InMemoryProductRepository implements ProductRepository
             array_map(fn (ProductPrice $price) => $price->id() === null
                 ? ProductPrice::reconstitute(new ProductPriceId($this->nextPriceId++), $price->currencyId(), $price->amount())
                 : ProductPrice::reconstitute($price->id(), $price->currencyId(), $price->amount()), $product->prices()),
-            $product->id() === null ? 1 : $product->version() + 1,
         );
 
         return $this->products[$product->id()->value()] = $product;

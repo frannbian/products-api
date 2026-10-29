@@ -59,7 +59,7 @@ El token vence según `JWT_TTL` (60 minutos por defecto). Se renueva con `POST /
 
 Base URL: `/api`. Todas las respuestas son JSON.
 
-Todos los listados están paginados con `?page=1&per_page=15` (máximo 100) y devuelven `data`, `links` y `meta`. Los recursos individuales devuelven su versión en el header `ETag` (ver [Concurrencia](#concurrencia)).
+Todos los listados están paginados con `?page=1&per_page=15` (máximo 100) y devuelven `data`, `links` y `meta`. Los `GET` devuelven un `ETag`; reenviándolo en `If-None-Match` se obtiene `304` si nada cambió.
 
 ### Productos
 
@@ -180,13 +180,12 @@ curl "http://localhost:8000/api/products?per_page=2&page=1" -H "Authorization: B
 
 | Código | Cuándo | Cuerpo |
 |---|---|---|
-| 304 | `If-None-Match` coincide con la versión actual | sin cuerpo |
+| 304 | `If-None-Match` coincide con el `ETag` actual | sin cuerpo |
 | 400 | Header `Idempotency-Key` vacío o de más de 255 caracteres | `{"message": "..."}` |
 | 401 | Falta el token, es inválido, venció o fue revocado | `{"message": "Unauthenticated."}` |
 | 403 | Link de verificación de email inválido | `{"message": "..."}` |
 | 404 | El producto o la divisa no existe, o el id no es un entero válido | `{"message": "The requested product does not exist."}` |
-| 409 | Se borra una divisa en uso, otra request modificó el recurso al mismo tiempo, o una `Idempotency-Key` sigue en proceso | `{"message": "..."}` |
-| 412 | `If-Match` no coincide con la versión actual (alguien modificó el recurso) | `{"message": "The resource was modified since you read it. ..."}` |
+| 409 | Se borra una divisa en uso; otra request tiene bloqueado el recurso hace más de 5 s (reintentar); o una `Idempotency-Key` sigue en proceso | `{"message": "..."}` |
 | 422 | Error de validación o de una regla de negocio | `{"message": "...", "errors": {"campo": ["..."]}}` |
 | 429 | Se superó el rate limit | `{"message": "Too Many Attempts."}` |
 | 503 | La base de datos no responde; reintentar después de `Retry-After` segundos | `{"message": "The service is temporarily unavailable. Try again later."}` |
@@ -216,19 +215,22 @@ Ejemplos de reglas de negocio que responden `422` sobre el campo afectado:
 
 ## Concurrencia
 
-**Optimistic locking con ETag / If-Match.** Productos y divisas tienen una versión que aumenta con cada cambio. Se expone en el header `ETag`:
+**Locking pesimista.** Los casos de uso que leen, modifican y guardan corren en una transacción y bloquean la fila con `SELECT … FOR UPDATE` desde la lectura hasta el commit:
 
-```bash
-curl -i http://localhost:8000/api/products/1 -H "Authorization: Bearer $TOKEN"
-# ETag: "3"
+- actualizar un producto,
+- registrar un precio,
+- borrar un producto,
+- actualizar o borrar una divisa.
 
-curl -X PUT http://localhost:8000/api/products/1 -H 'If-Match: "3"' ...
-# 200 con ETag: "4"; si alguien lo modificó antes, 412 y no se pisa nada
-```
+Si dos requests modifican el mismo recurso, la segunda **espera** a que termine la primera y trabaja sobre los datos ya actualizados. Así no se pierde ningún cambio y no hace falta reintentar.
 
-El `UPDATE` se hace con `WHERE id = ? AND version = ?` en una sola sentencia atómica. Si otra request modificó la fila entre la lectura y la escritura, no se pierde el cambio: se responde `409`. `If-Match` es opcional; sin el header igual se detectan las escrituras concurrentes.
+- **Lock sobre el aggregate root.** Todo cambio de precios pasa por el producto, así que bloquear la fila del producto alcanza. Además, como siempre se toma un solo lock, no puede haber deadlocks por adquirir locks en distinto orden.
+- **`lock_timeout` de 5 s.** Ninguna request queda esperando indefinidamente un lock: si se supera, responde `409` y se puede reintentar.
+- **Deadlocks.** Si PostgreSQL aborta una transacción por deadlock, se reintenta completa hasta 3 veces.
+- **Borrar una divisa** bloquea su fila antes de chequear si está en uso. Un producto que empieza a usarla al mismo tiempo tiene que esperar el chequeo de la foreign key sobre esa fila, así que el chequeo y el borrado no se pueden intercalar.
+- **Lecturas sin bloqueo.** Los `GET` no abren transacción ni toman locks.
 
-**Precios en paralelo.** Registrar un precio modifica el agregado `Product`. Si dos requests chocan, `SetProductPrice` recarga el producto y reintenta, hasta 3 veces. Es seguro porque la operación es "fijar este precio".
+La frontera transaccional es un puerto de la capa de aplicación (`TransactionManager`), implementado en infraestructura con las transacciones de Laravel.
 
 **Races sobre constraints.** Dos requests que crean la misma divisa o el mismo email pueden pasar el chequeo de unicidad a la vez. La base es la fuente de verdad: los repositorios traducen la violación del índice único a la regla de negocio (`422`). Lo mismo con una divisa que empieza a usarse mientras se borra (`409`). Cualquier violación que no se haya traducido responde `409`, nunca un `500` con SQL.
 
@@ -244,16 +246,16 @@ Las claves pertenecen a cada usuario y se guardan 24 horas. Solo se guardan las 
 
 - **Health check:** `GET /up` verifica también la conexión a la base, así un load balancer saca de rotación una instancia que no puede trabajar.
 - **Base caída:** responde `503` con `Retry-After: 30` y un mensaje genérico, sin host ni `SQLSTATE`.
-- **Deadlocks:** las transacciones de escritura de productos se reintentan hasta 3 veces si la base las aborta.
-- **Errores de base no previstos:** se traducen a `409` (constraints) o `503` (conexión) en `Infrastructure/Shared/Persistence/DatabaseErrorRenderer`.
+- **Deadlocks y locks:** las transacciones se reintentan hasta 3 veces si la base las aborta por deadlock, y ninguna espera un lock más de 5 s.
+- **Errores de base no previstos:** se traducen a `409` (constraints y lock timeout) o `503` (conexión) en `Infrastructure/Shared/Persistence/DatabaseErrorRenderer`.
 
 ## Performance
 
 - **Paginación** en todos los listados, resuelta en la base (`LIMIT/OFFSET`). Los precios se paginan sin cargar el agregado completo.
 - **Índices** en `products.currency_id` y `product_prices.currency_id`: PostgreSQL no indexa las foreign keys por su cuenta, y se usan para saber si una divisa está en uso. `(product_id, currency_id)` tiene un índice único.
 - **Eager loading** de los precios al leer productos, y **strict mode** de Eloquent fuera de producción: un N+1 o un atributo inexistente hace fallar el request en desarrollo y en los tests.
-- **Cache de "¿existe esta divisa?"**, la consulta que hace cada escritura de productos y precios. Solo se cachean respuestas positivas y se invalidan al borrar; si el cache quedara atrás, la foreign key igual rechaza la escritura. Las entidades no se cachean, así el optimistic locking siempre compara contra la versión real.
-- **Respuestas condicionales:** los listados y los recursos individuales devuelven `ETag` y responden `304` sin cuerpo cuando el cliente ya tiene esa versión (`If-None-Match`). Son `Cache-Control: private`, porque dependen del usuario autenticado.
+- **Cache de "¿existe esta divisa?"**, la consulta que hace cada escritura de productos y precios. Solo se cachean respuestas positivas y se invalidan al borrar; si el cache quedara atrás, la foreign key igual rechaza la escritura. Las entidades no se cachean: las lecturas y los locks siempre ven los datos guardados.
+- **Respuestas condicionales:** los `GET` devuelven un `ETag` calculado del contenido y responden `304` sin cuerpo cuando el cliente ya tiene esa respuesta (`If-None-Match`). Son `Cache-Control: private`, porque dependen del usuario autenticado.
 
 ## Arquitectura
 

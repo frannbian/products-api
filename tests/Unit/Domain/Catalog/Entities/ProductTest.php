@@ -114,16 +114,3 @@ test('the base currency can not change to a currency that already has a price', 
         $product->manufacturingCost(),
     );
 })->throws(PriceInBaseCurrency::class);
-
-test('a new product starts at version 1', function () {
-    expect(newProduct()->version())->toBe(1);
-});
-
-test('a reconstituted product keeps its version', function () {
-    $product = Product::reconstitute(
-        new ProductId(5), new ProductName('Keyboard'), new ProductDescription('Mechanical'),
-        new Amount('1'), new CurrencyId(1), new Amount('1'), new Amount('1'), [], version: 7,
-    );
-
-    expect($product->version())->toBe(7);
-});

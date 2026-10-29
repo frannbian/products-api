@@ -6,7 +6,6 @@ use App\Application\Currency\UseCases\DeleteCurrency;
 use App\Application\Currency\UseCases\GetCurrency;
 use App\Application\Currency\UseCases\ListCurrencies;
 use App\Application\Currency\UseCases\UpdateCurrency;
-use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Entities\Product;
 use App\Domain\Catalog\ValueObjects\Amount;
 use App\Domain\Catalog\ValueObjects\ProductDescription;
@@ -15,12 +14,13 @@ use App\Domain\Currency\Exceptions\CurrencyInUse;
 use App\Domain\Currency\Exceptions\CurrencyNameAlreadyTaken;
 use App\Domain\Currency\Exceptions\CurrencyNotFound;
 use App\Domain\Currency\ValueObjects\CurrencyId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
+use Tests\Support\FakeTransactionManager;
 use Tests\Support\InMemoryCurrencyRepository;
 use Tests\Support\InMemoryProductRepository;
 
 beforeEach(function () {
-    $this->currencies = new InMemoryCurrencyRepository;
+    $this->tx = new FakeTransactionManager;
+    $this->currencies = new InMemoryCurrencyRepository($this->tx);
     $this->products = new InMemoryProductRepository;
 });
 
@@ -67,7 +67,7 @@ test('getting an unknown currency fails', function () {
 test('it updates a currency', function () {
     $eur = $this->currencies->add('Euro', '€', '0.92');
 
-    $updated = (new UpdateCurrency($this->currencies))->execute($eur->id(), euroData(['exchange_rate' => '0.95']));
+    $updated = (new UpdateCurrency($this->currencies, $this->tx))->execute($eur->id(), euroData(['exchange_rate' => '0.95']));
 
     expect($updated->exchangeRate()->value())->toBe('0.950000')
         ->and($this->currencies->findById($eur->id())->exchangeRate()->value())->toBe('0.950000');
@@ -76,24 +76,24 @@ test('it updates a currency', function () {
 test('a currency keeps its own name when updated', function () {
     $eur = $this->currencies->add('Euro');
 
-    expect((new UpdateCurrency($this->currencies))->execute($eur->id(), euroData())->name()->value())->toBe('Euro');
+    expect((new UpdateCurrency($this->currencies, $this->tx))->execute($eur->id(), euroData())->name()->value())->toBe('Euro');
 });
 
 test('a currency can not take the name of another one', function () {
     $this->currencies->add('US Dollar');
     $eur = $this->currencies->add('Euro');
 
-    (new UpdateCurrency($this->currencies))->execute($eur->id(), euroData(['name' => 'US Dollar']));
+    (new UpdateCurrency($this->currencies, $this->tx))->execute($eur->id(), euroData(['name' => 'US Dollar']));
 })->throws(CurrencyNameAlreadyTaken::class);
 
 test('updating an unknown currency fails', function () {
-    (new UpdateCurrency($this->currencies))->execute(new CurrencyId(99), euroData());
+    (new UpdateCurrency($this->currencies, $this->tx))->execute(new CurrencyId(99), euroData());
 })->throws(CurrencyNotFound::class);
 
 test('it deletes an unused currency', function () {
     $eur = $this->currencies->add('Euro');
 
-    (new DeleteCurrency($this->currencies, $this->products))->execute($eur->id());
+    (new DeleteCurrency($this->currencies, $this->products, $this->tx))->execute($eur->id());
 
     expect($this->currencies->findById($eur->id()))->toBeNull();
 });
@@ -105,34 +105,25 @@ test('a currency used by a product can not be deleted', function () {
         $usd->id(), new Amount('1'), new Amount('2'),
     ));
 
-    (new DeleteCurrency($this->currencies, $this->products))->execute($usd->id());
+    (new DeleteCurrency($this->currencies, $this->products, $this->tx))->execute($usd->id());
 })->throws(CurrencyInUse::class);
 
 test('deleting an unknown currency fails', function () {
-    (new DeleteCurrency($this->currencies, $this->products))->execute(new CurrencyId(99));
+    (new DeleteCurrency($this->currencies, $this->products, $this->tx))->execute(new CurrencyId(99));
 })->throws(CurrencyNotFound::class);
 
-test('a currency can not be updated from a stale version', function () {
-    $eur = $this->currencies->add('Euro');
-    $useCase = new UpdateCurrency($this->currencies);
-    $useCase->execute($eur->id(), euroData(['exchange_rate' => '0.95']));
-
-    $useCase->execute($eur->id(), euroData(['exchange_rate' => '0.99']), expectedVersion: 1);
-})->throws(StaleVersion::class);
-
-test('a currency can be updated from its current version', function () {
+test('updating a currency locks it inside a transaction', function () {
     $eur = $this->currencies->add('Euro');
 
-    $updated = (new UpdateCurrency($this->currencies))->execute($eur->id(), euroData(['exchange_rate' => '0.95']), expectedVersion: 1);
+    (new UpdateCurrency($this->currencies, $this->tx))->execute($eur->id(), euroData(['exchange_rate' => '0.95']));
 
-    expect($updated->version())->toBe(2);
+    expect($this->currencies->locks)->toBe([['id' => $eur->id()->value(), 'inTransaction' => true]]);
 });
 
-test('a concurrent currency modification is detected', function () {
+test('deleting a currency locks it inside a transaction before checking whether it is in use', function () {
     $eur = $this->currencies->add('Euro');
-    $copyA = $this->currencies->findById($eur->id());
-    $copyB = $this->currencies->findById($eur->id());
 
-    $this->currencies->save($copyA);
-    $this->currencies->save($copyB);
-})->throws(ConcurrencyConflict::class);
+    (new DeleteCurrency($this->currencies, $this->products, $this->tx))->execute($eur->id());
+
+    expect($this->currencies->locks)->toBe([['id' => $eur->id()->value(), 'inTransaction' => true]]);
+});

@@ -8,7 +8,6 @@ use App\Domain\Currency\ValueObjects\CurrencyId;
 use App\Domain\Currency\ValueObjects\CurrencyName;
 use App\Domain\Currency\ValueObjects\CurrencySymbol;
 use App\Domain\Currency\ValueObjects\ExchangeRate;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 
 final class InMemoryCurrencyRepository implements CurrencyRepository
@@ -17,6 +16,13 @@ final class InMemoryCurrencyRepository implements CurrencyRepository
     private array $currencies = [];
 
     private int $nextId = 1;
+
+    /** @var list<array{id: int, inTransaction: bool}> */
+    public array $locks = [];
+
+    public function __construct(
+        private ?FakeTransactionManager $transactions = null,
+    ) {}
 
     public function paginate(int $page, int $perPage): Paginated
     {
@@ -28,6 +34,13 @@ final class InMemoryCurrencyRepository implements CurrencyRepository
     public function findById(CurrencyId $id): ?Currency
     {
         return $this->currencies[$id->value()] ?? null;
+    }
+
+    public function findByIdForUpdate(CurrencyId $id): ?Currency
+    {
+        $this->locks[] = ['id' => $id->value(), 'inTransaction' => (bool) $this->transactions?->active()];
+
+        return $this->findById($id);
     }
 
     public function exists(CurrencyId $id): bool
@@ -49,16 +62,11 @@ final class InMemoryCurrencyRepository implements CurrencyRepository
 
     public function save(Currency $currency): Currency
     {
-        if ($currency->id() !== null && $this->currencies[$currency->id()->value()]?->version() !== $currency->version()) {
-            throw new ConcurrencyConflict('currency', $currency->id()->value());
-        }
-
         return $this->currencies[$currency->id()?->value() ?? $this->nextId] = Currency::reconstitute(
             $currency->id() ?? new CurrencyId($this->nextId++),
             $currency->name(),
             $currency->symbol(),
             $currency->exchangeRate(),
-            $currency->id() === null ? 1 : $currency->version() + 1,
         );
     }
 

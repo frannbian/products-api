@@ -19,6 +19,14 @@ final class PostgresError
     }
 
     /**
+     * The statement waited longer than lock_timeout for a row lock.
+     */
+    public static function isLockTimeout(Throwable $e): bool
+    {
+        return self::sqlState($e) === '55P03';
+    }
+
+    /**
      * Class 08 (connection exception) and 57P0x (server shutting down): the
      * database is unreachable, not the request at fault.
      */

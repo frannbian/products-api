@@ -10,18 +10,16 @@ use App\Application\Catalog\UseCases\ListProductPrices;
 use App\Application\Catalog\UseCases\ListProducts;
 use App\Application\Catalog\UseCases\SetProductPrice;
 use App\Application\Catalog\UseCases\UpdateProduct;
-use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
-use App\Domain\Catalog\ValueObjects\Amount;
 use App\Domain\Catalog\ValueObjects\ProductId;
-use App\Domain\Shared\Exceptions\ConcurrencyConflict;
-use Tests\Support\ConflictingProductRepository;
+use Tests\Support\FakeTransactionManager;
 use Tests\Support\InMemoryCurrencyRepository;
 use Tests\Support\InMemoryProductRepository;
 
 beforeEach(function () {
-    $this->products = new InMemoryProductRepository;
+    $this->tx = new FakeTransactionManager;
+    $this->products = new InMemoryProductRepository($this->tx);
     $this->currencies = new InMemoryCurrencyRepository;
     $this->usd = $this->currencies->add('US Dollar', '$', '1');
     $this->eur = $this->currencies->add('Euro', '€', '0.92');
@@ -83,7 +81,7 @@ test('getting an unknown product fails', function () {
 test('it updates a product', function () {
     $product = createProduct($this);
 
-    $updated = (new UpdateProduct($this->products, $this->currencies))->execute(
+    $updated = (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         productData($this->eur->id()->value(), ['name' => 'Mouse', 'price' => '50']),
     );
@@ -94,31 +92,31 @@ test('it updates a product', function () {
 });
 
 test('updating an unknown product fails', function () {
-    (new UpdateProduct($this->products, $this->currencies))->execute(new ProductId(99), productData($this->usd->id()->value()));
+    (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute(new ProductId(99), productData($this->usd->id()->value()));
 })->throws(ProductNotFound::class);
 
 test('a product can not be updated with an unknown currency', function () {
     $product = createProduct($this);
 
-    (new UpdateProduct($this->products, $this->currencies))->execute($product->id(), productData(99));
+    (new UpdateProduct($this->products, $this->currencies, $this->tx))->execute($product->id(), productData(99));
 })->throws(UnknownCurrency::class);
 
 test('it deletes a product', function () {
     $product = createProduct($this);
 
-    (new DeleteProduct($this->products))->execute($product->id());
+    (new DeleteProduct($this->products, $this->tx))->execute($product->id());
 
     expect($this->products->findById($product->id()))->toBeNull();
 });
 
 test('deleting an unknown product fails', function () {
-    (new DeleteProduct($this->products))->execute(new ProductId(99));
+    (new DeleteProduct($this->products, $this->tx))->execute(new ProductId(99));
 })->throws(ProductNotFound::class);
 
 test('it registers a price in another currency', function () {
     $product = createProduct($this);
 
-    $result = (new SetProductPrice($this->products, $this->currencies))->execute(
+    $result = (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -131,7 +129,7 @@ test('it registers a price in another currency', function () {
 
 test('registering a price again in the same currency updates it', function () {
     $product = createProduct($this);
-    $useCase = new SetProductPrice($this->products, $this->currencies);
+    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx);
     $first = $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']));
 
     $second = $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '95']));
@@ -145,7 +143,7 @@ test('registering a price again in the same currency updates it', function () {
 test('a price can not be registered in an unknown currency', function () {
     $product = createProduct($this);
 
-    (new SetProductPrice($this->products, $this->currencies))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => 99, 'price' => '92']),
     );
@@ -154,14 +152,14 @@ test('a price can not be registered in an unknown currency', function () {
 test('a price can not be registered in the base currency', function () {
     $product = createProduct($this);
 
-    (new SetProductPrice($this->products, $this->currencies))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->usd->id()->value(), 'price' => '92']),
     );
 })->throws(PriceInBaseCurrency::class);
 
 test('a price can not be registered for an unknown product', function () {
-    (new SetProductPrice($this->products, $this->currencies))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         new ProductId(99),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -169,7 +167,7 @@ test('a price can not be registered for an unknown product', function () {
 
 test('it lists the prices of a product', function () {
     $product = createProduct($this);
-    (new SetProductPrice($this->products, $this->currencies))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
@@ -183,7 +181,7 @@ test('it lists the prices of a product', function () {
 test('it lists the prices of a product page by page', function () {
     $product = createProduct($this);
     $ars = $this->currencies->add('Peso argentino');
-    $useCase = new SetProductPrice($this->products, $this->currencies);
+    $useCase = new SetProductPrice($this->products, $this->currencies, $this->tx);
     $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']));
     $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $ars->id()->value(), 'price' => '1000']));
 
@@ -198,76 +196,39 @@ test('listing the prices of an unknown product fails', function () {
     (new ListProductPrices($this->products))->execute(new ProductId(99), page: 1, perPage: 15);
 })->throws(ProductNotFound::class);
 
-test('saving a product bumps its version', function () {
+test('updating a product locks it inside a transaction', function () {
     $product = createProduct($this);
 
-    $updated = (new UpdateProduct($this->products, $this->currencies))
+    (new UpdateProduct($this->products, $this->currencies, $this->tx))
         ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']));
 
-    expect($product->version())->toBe(1)
-        ->and($updated->version())->toBe(2);
+    expect($this->products->locks)->toBe([['id' => $product->id()->value(), 'inTransaction' => true]]);
 });
 
-test('a product can not be updated from a stale version', function () {
-    $product = createProduct($this);
-    $useCase = new UpdateProduct($this->products, $this->currencies);
-    $useCase->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'First edit']));
-
-    try {
-        $useCase->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Second edit']), expectedVersion: 1);
-        $this->fail('Expected StaleVersion to be thrown.');
-    } catch (StaleVersion $e) {
-        expect($e->expected)->toBe(1)->and($e->actual)->toBe(2);
-    }
-
-    expect($this->products->findById($product->id())->name()->value())->toBe('First edit');
-});
-
-test('a product can be updated from its current version', function () {
+test('registering a price locks the product inside a transaction', function () {
     $product = createProduct($this);
 
-    $updated = (new UpdateProduct($this->products, $this->currencies))
-        ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']), expectedVersion: 1);
-
-    expect($updated->name()->value())->toBe('Mouse');
-});
-
-test('a concurrent modification between loading and saving is detected', function () {
-    $product = createProduct($this);
-    $copyA = $this->products->findById($product->id());
-    $copyB = $this->products->findById($product->id());
-
-    $copyA->setPriceIn($this->eur->id(), new Amount('90'));
-    $this->products->save($copyA);
-
-    $copyB->setPriceIn($this->eur->id(), new Amount('95'));
-    $this->products->save($copyB);
-})->throws(ConcurrencyConflict::class);
-
-test('registering a price retries when another request modified the product', function () {
-    $product = createProduct($this);
-    $flaky = new ConflictingProductRepository($this->products, conflicts: 2);
-
-    $result = (new SetProductPrice($flaky, $this->currencies))->execute(
+    (new SetProductPrice($this->products, $this->currencies, $this->tx))->execute(
         $product->id(),
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
 
-    expect($result->price->amount()->value())->toBe('92.00')
-        ->and($flaky->attempts)->toBe(3);
+    expect($this->products->locks)->toBe([['id' => $product->id()->value(), 'inTransaction' => true]]);
 });
 
-test('registering a price gives up after three conflicting attempts', function () {
+test('deleting a product locks it inside a transaction', function () {
     $product = createProduct($this);
-    $flaky = new ConflictingProductRepository($this->products, conflicts: 3);
 
-    try {
-        (new SetProductPrice($flaky, $this->currencies))->execute(
-            $product->id(),
-            ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
-        );
-        $this->fail('Expected ConcurrencyConflict to be thrown.');
-    } catch (ConcurrencyConflict) {
-        expect($flaky->attempts)->toBe(3);
-    }
+    (new DeleteProduct($this->products, $this->tx))->execute($product->id());
+
+    expect($this->products->locks)->toBe([['id' => $product->id()->value(), 'inTransaction' => true]]);
+});
+
+test('reading a product takes no lock and opens no transaction', function () {
+    $product = createProduct($this);
+
+    (new GetProduct($this->products))->execute($product->id());
+
+    expect($this->products->locks)->toBe([])
+        ->and($this->tx->transactions)->toBe(0);
 });
