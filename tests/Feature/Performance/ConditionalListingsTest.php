@@ -26,7 +26,7 @@ test('listings and single resources respond 304 while their content does not cha
 test('a single resource returns content again after it changed', function () {
     $etag = $this->getJson("/api/products/{$this->product->id}")->headers->get('ETag');
 
-    $this->product->update(['name' => 'Renamed']);
+    $this->putJson("/api/products/{$this->product->id}", ['name' => 'Renamed', 'description' => 'Desc', 'price' => 1, 'currency_id' => $this->usd->id, 'tax_cost' => 0, 'manufacturing_cost' => 0])->assertOk();
 
     $this->getJson("/api/products/{$this->product->id}", ['If-None-Match' => $etag])
         ->assertOk()
@@ -36,7 +36,7 @@ test('a single resource returns content again after it changed', function () {
 test('a listing returns content again when it changed', function () {
     $etag = $this->getJson('/api/products')->headers->get('ETag');
 
-    ProductModel::factory()->for($this->usd, 'currency')->create();
+    $this->postJson('/api/products', ['name' => 'New', 'description' => 'Desc', 'price' => 1, 'currency_id' => $this->usd->id, 'tax_cost' => 0, 'manufacturing_cost' => 0])->assertCreated();
 
     $this->getJson('/api/products', ['If-None-Match' => $etag])->assertOk()->assertJsonCount(2, 'data');
 });

@@ -122,6 +122,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Repository Cache TTLs
+    |--------------------------------------------------------------------------
+    |
+    | Seconds that cached reads live before being renewed even if nothing was
+    | written through the API (writes renew them right away).
+    |
+    */
+
+    'ttl' => [
+        'listings' => (int) env('CACHE_TTL_LISTINGS', 300),
+        'resources' => (int) env('CACHE_TTL_RESOURCES', 600),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Serializable Classes
     |--------------------------------------------------------------------------
     |

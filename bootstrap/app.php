@@ -1,5 +1,6 @@
 <?php
 
+use App\Infrastructure\Shared\Cache\CacheErrorRenderer;
 use App\Infrastructure\Shared\Persistence\DatabaseErrorRenderer;
 use App\Presentation\Http\Exceptions\DomainExceptionRenderer;
 use App\Presentation\Http\Middleware\ForceJsonResponse;
@@ -31,4 +32,5 @@ return Application::configure(basePath: dirname(__DIR__))
 
         DomainExceptionRenderer::register($exceptions);
         DatabaseErrorRenderer::register($exceptions);
+        CacheErrorRenderer::register($exceptions);
     })->create();

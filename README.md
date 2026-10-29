@@ -11,24 +11,27 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 - [Concurrencia](#concurrencia)
 - [Resiliencia](#resiliencia)
 - [Performance](#performance)
+- [Cache](#cache)
 - [Arquitectura](#arquitectura)
 - [Tests](#tests)
 - [Decisiones de diseño](#decisiones-de-diseño)
 
 ## Puesta en marcha
 
-Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL).
+Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL y Redis).
 
 ```bash
 composer install
-cp .env.example .env               # completar DB_PASSWORD
+cp .env.example .env               # completar DB_PASSWORD y REDIS_PASSWORD
 php artisan key:generate
 php artisan jwt:secret             # clave para firmar los JWT
 
-docker compose up -d               # PostgreSQL 17
+docker compose up -d               # PostgreSQL 17 + Redis 7.4
 php artisan migrate --seed         # tablas + datos de ejemplo
 php artisan serve                  # http://localhost:8000
 ```
+
+Si el puerto 6379 ya está ocupado (por ejemplo, por un Redis instalado en la máquina), cambiá `REDIS_PORT` en el `.env`: el contenedor publica Redis en ese puerto.
 
 El seeder crea:
 
@@ -188,7 +191,7 @@ curl "http://localhost:8000/api/products?per_page=2&page=1" -H "Authorization: B
 | 409 | Se borra una divisa en uso; otra request tiene bloqueado el recurso hace más de 5 s (reintentar); o una `Idempotency-Key` sigue en proceso | `{"message": "..."}` |
 | 422 | Error de validación o de una regla de negocio | `{"message": "...", "errors": {"campo": ["..."]}}` |
 | 429 | Se superó el rate limit | `{"message": "Too Many Attempts."}` |
-| 503 | La base de datos no responde; reintentar después de `Retry-After` segundos | `{"message": "The service is temporarily unavailable. Try again later."}` |
+| 503 | La base de datos o Redis no responden; reintentar después de `Retry-After` segundos | `{"message": "The service is temporarily unavailable. Try again later."}` |
 
 Ejemplos de reglas de negocio que responden `422` sobre el campo afectado:
 
@@ -244,8 +247,7 @@ Las claves pertenecen a cada usuario y se guardan 24 horas. Solo se guardan las 
 
 ## Resiliencia
 
-- **Health check:** `GET /up` verifica también la conexión a la base, así un load balancer saca de rotación una instancia que no puede trabajar.
-- **Base caída:** responde `503` con `Retry-After: 30` y un mensaje genérico, sin host ni `SQLSTATE`.
+- **Base o Redis caídos:** responde `503` con `Retry-After: 30` y un mensaje genérico, sin host ni detalles de conexión. `/up` verifica los dos.
 - **Deadlocks y locks:** las transacciones se reintentan hasta 3 veces si la base las aborta por deadlock, y ninguna espera un lock más de 5 s.
 - **Errores de base no previstos:** se traducen a `409` (constraints y lock timeout) o `503` (conexión) en `Infrastructure/Shared/Persistence/DatabaseErrorRenderer`.
 
@@ -254,8 +256,41 @@ Las claves pertenecen a cada usuario y se guardan 24 horas. Solo se guardan las 
 - **Paginación** en todos los listados, resuelta en la base (`LIMIT/OFFSET`). Los precios se paginan sin cargar el agregado completo.
 - **Índices** en `products.currency_id` y `product_prices.currency_id`: PostgreSQL no indexa las foreign keys por su cuenta, y se usan para saber si una divisa está en uso. `(product_id, currency_id)` tiene un índice único.
 - **Eager loading** de los precios al leer productos, y **strict mode** de Eloquent fuera de producción: un N+1 o un atributo inexistente hace fallar el request en desarrollo y en los tests.
-- **Cache de "¿existe esta divisa?"**, la consulta que hace cada escritura de productos y precios. Solo se cachean respuestas positivas y se invalidan al borrar; si el cache quedara atrás, la foreign key igual rechaza la escritura. Las entidades no se cachean: las lecturas y los locks siempre ven los datos guardados.
+- **Cache en Redis** de lo que cambia poco: ver [Cache](#cache).
 - **Respuestas condicionales:** los `GET` devuelven un `ETag` calculado del contenido y responden `304` sin cuerpo cuando el cliente ya tiene esa respuesta (`If-None-Match`). Son `Cache-Control: private`, porque dependen del usuario autenticado.
+
+## Cache
+
+Las lecturas del catálogo se sirven desde Redis. Los repositorios cacheados son decoradores en infraestructura (`CachedProductRepository`, `CachedCurrencyRepository`), así que el dominio y los use cases no saben que existe un cache.
+
+| Qué | TTL | Variable |
+|---|---|---|
+| Listados de productos, divisas y precios (cada página) | 5 min | `CACHE_TTL_LISTINGS` |
+| Producto y divisa individuales, chequeos de existencia | 10 min | `CACHE_TTL_RESOURCES` |
+
+**Cuándo se renueva:**
+
+- **Al vencer el TTL,** aunque nadie haya escrito por la API. Esto cubre cambios hechos por fuera, como seeders o SQL manual. Para verlos al instante: `php artisan cache:clear`.
+- **Cuando se crea, modifica o borra un registro por la API.** Toda escritura renueva el namespace completo (`products` o `currencies`). Así un producto nuevo aparece enseguida en todas las páginas del listado, sin tener que saber en cuáles cae.
+
+**Cómo funciona la invalidación.** Cada clave incluye la *generación* de su namespace, un token aleatorio (`products:g3f9a…:page:1:15`). Invalidar es reemplazar ese token:
+
+- Las entradas viejas dejan de leerse de una vez, en una operación atómica, y Redis las borra solas al vencer su TTL. No hace falta recorrer claves con `KEYS`, que bloquea Redis.
+- La invalidación corre **después del commit** de la transacción. Si corriera antes, una lectura concurrente podría volver a cachear los datos viejos. Con un rollback no se invalida nada.
+- Redis está configurado para desalojar claves cuando se llena (`allkeys-lru`). Si desaloja el token, se genera uno nuevo y aleatorio, así que nunca se puede volver a leer una generación vieja.
+
+**Qué nunca se cachea:**
+
+- La lectura con lock (`SELECT … FOR UPDATE`): tiene que ver la fila real.
+- El chequeo de nombre de divisa único.
+- El chequeo de "¿esta divisa está en uso?".
+
+**Qué se guarda.** Se cachean arrays de valores primitivos, no objetos PHP (`cache.serializable_classes` está desactivado), y las entidades se reconstruyen al leer. Deserializar objetos desde un store compartido se puede explotar para ejecutar código.
+
+**Redis** (`docker-compose.yml`) corre como cache: no persiste a disco, tiene 256 MB con desalojo LRU y requiere contraseña. También guarda el rate limiting y las `Idempotency-Key`, por eso es una dependencia obligatoria, igual que la base:
+
+- `/up` lo verifica.
+- Si no responde, la API devuelve `503` con `Retry-After`.
 
 ## Arquitectura
 

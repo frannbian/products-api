@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Domain\Catalog\Repositories\ProductRepository;
+use App\Infrastructure\Catalog\Persistence\CachedProductRepository;
 use App\Infrastructure\Catalog\Persistence\EloquentProductRepository;
+use App\Infrastructure\Shared\Cache\GenerationalCache;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -12,11 +14,15 @@ use Illuminate\Support\ServiceProvider;
 class CatalogServiceProvider extends ServiceProvider
 {
     /**
-     * All of the container bindings that should be registered.
-     *
-     * @var array<class-string, class-string>
+     * Register services.
      */
-    public array $bindings = [
-        ProductRepository::class => EloquentProductRepository::class,
-    ];
+    public function register(): void
+    {
+        $this->app->bind(ProductRepository::class, fn ($app) => new CachedProductRepository(
+            $app->make(EloquentProductRepository::class),
+            $app->make(GenerationalCache::class),
+            listingsTtl: (int) config('cache.ttl.listings'),
+            resourcesTtl: (int) config('cache.ttl.resources'),
+        ));
+    }
 }

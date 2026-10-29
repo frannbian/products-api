@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Application\Shared\Contracts\TransactionManager;
+use App\Infrastructure\Shared\Health\CacheHealthCheck;
 use App\Infrastructure\Shared\Health\DatabaseHealthCheck;
 use App\Infrastructure\Shared\Persistence\DatabaseTransactionManager;
 use Dedoc\Scramble\Scramble;
@@ -41,6 +42,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(DiagnosingHealth::class, DatabaseHealthCheck::class);
+        Event::listen(DiagnosingHealth::class, CacheHealthCheck::class);
 
         // Fail fast on N+1 queries and attribute typos while developing.
         Model::shouldBeStrict(! $this->app->isProduction());

@@ -5,7 +5,7 @@ namespace App\Providers;
 use App\Domain\Currency\Repositories\CurrencyRepository;
 use App\Infrastructure\Currency\Persistence\CachedCurrencyRepository;
 use App\Infrastructure\Currency\Persistence\EloquentCurrencyRepository;
-use Illuminate\Contracts\Cache\Repository as Cache;
+use App\Infrastructure\Shared\Cache\GenerationalCache;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -20,7 +20,9 @@ class CurrencyServiceProvider extends ServiceProvider
     {
         $this->app->bind(CurrencyRepository::class, fn ($app) => new CachedCurrencyRepository(
             $app->make(EloquentCurrencyRepository::class),
-            $app->make(Cache::class),
+            $app->make(GenerationalCache::class),
+            listingsTtl: (int) config('cache.ttl.listings'),
+            resourcesTtl: (int) config('cache.ttl.resources'),
         ));
     }
 }
