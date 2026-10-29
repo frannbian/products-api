@@ -1,10 +1,14 @@
 <?php
 
 use App\Domain\Currency\Entities\Currency;
+use App\Domain\Currency\Exceptions\CurrencyInUse;
+use App\Domain\Currency\Exceptions\CurrencyNameAlreadyTaken;
 use App\Domain\Currency\ValueObjects\CurrencyId;
 use App\Domain\Currency\ValueObjects\CurrencyName;
 use App\Domain\Currency\ValueObjects\CurrencySymbol;
 use App\Domain\Currency\ValueObjects\ExchangeRate;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
+use App\Infrastructure\Catalog\Persistence\Eloquent\ProductModel;
 use App\Infrastructure\Currency\Persistence\Eloquent\CurrencyModel;
 use App\Infrastructure\Currency\Persistence\EloquentCurrencyRepository;
 
@@ -38,12 +42,14 @@ test('it returns null for an unknown id', function () {
     expect($this->repository->findById(new CurrencyId(999)))->toBeNull();
 });
 
-test('it lists every currency ordered by id', function () {
-    $first = CurrencyModel::factory()->create();
-    $second = CurrencyModel::factory()->create();
+test('it paginates currencies ordered by id', function () {
+    $models = CurrencyModel::factory()->count(3)->create();
 
-    expect(array_map(fn (Currency $c) => $c->id()->value(), $this->repository->all()))
-        ->toBe([$first->id, $second->id]);
+    $page = $this->repository->paginate(page: 1, perPage: 2);
+
+    expect($page->total)->toBe(3)
+        ->and(array_map(fn (Currency $c) => $c->id()->value(), $page->items))
+        ->toBe([$models[0]->id, $models[1]->id]);
 });
 
 test('it knows whether a name is taken, optionally ignoring a currency', function () {
@@ -71,4 +77,44 @@ test('it deletes a currency', function () {
     $this->repository->delete(new CurrencyId($model->id));
 
     expect(CurrencyModel::find($model->id))->toBeNull();
+});
+
+test('saving an existing currency bumps its version and rejects stale copies', function () {
+    $model = CurrencyModel::factory()->create();
+    $current = $this->repository->findById(new CurrencyId($model->id));
+    $stale = $this->repository->findById(new CurrencyId($model->id));
+
+    $saved = $this->repository->save($current);
+
+    expect($saved->version())->toBe(2)
+        ->and(fn () => $this->repository->save($stale))->toThrow(ConcurrencyConflict::class);
+});
+
+test('a duplicate name that slips past the check is reported as taken', function () {
+    CurrencyModel::factory()->create(['name' => 'Euro']);
+
+    // Simulates two requests that both checked the name before either saved.
+    $this->repository->save(Currency::create(new CurrencyName('Euro'), new CurrencySymbol('€'), new ExchangeRate('1')));
+})->throws(CurrencyNameAlreadyTaken::class);
+
+test('renaming to a taken name that slips past the check is reported as taken', function () {
+    CurrencyModel::factory()->create(['name' => 'Euro']);
+    $other = $this->repository->findById(new CurrencyId(CurrencyModel::factory()->create(['name' => 'Yen'])->id));
+
+    $other->update(new CurrencyName('Euro'), $other->symbol(), $other->exchangeRate());
+    $this->repository->save($other);
+})->throws(CurrencyNameAlreadyTaken::class);
+
+test('deleting a currency that became used in the meantime is reported as in use', function () {
+    $currency = CurrencyModel::factory()->create();
+    ProductModel::factory()->for($currency, 'currency')->create();
+
+    $this->repository->delete(new CurrencyId($currency->id));
+})->throws(CurrencyInUse::class);
+
+test('it knows whether a currency exists', function () {
+    $model = CurrencyModel::factory()->create();
+
+    expect($this->repository->exists(new CurrencyId($model->id)))->toBeTrue()
+        ->and($this->repository->exists(new CurrencyId(999)))->toBeFalse();
 });

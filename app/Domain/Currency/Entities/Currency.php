@@ -14,11 +14,12 @@ final class Currency
         private CurrencyName $name,
         private CurrencySymbol $symbol,
         private ExchangeRate $exchangeRate,
+        private int $version,
     ) {}
 
     public static function create(CurrencyName $name, CurrencySymbol $symbol, ExchangeRate $exchangeRate): self
     {
-        return new self(null, $name, $symbol, $exchangeRate);
+        return new self(null, $name, $symbol, $exchangeRate, 1);
     }
 
     public static function reconstitute(
@@ -26,8 +27,9 @@ final class Currency
         CurrencyName $name,
         CurrencySymbol $symbol,
         ExchangeRate $exchangeRate,
+        int $version = 1,
     ): self {
-        return new self($id, $name, $symbol, $exchangeRate);
+        return new self($id, $name, $symbol, $exchangeRate, $version);
     }
 
     public function update(CurrencyName $name, CurrencySymbol $symbol, ExchangeRate $exchangeRate): void
@@ -35,6 +37,14 @@ final class Currency
         $this->name = $name;
         $this->symbol = $symbol;
         $this->exchangeRate = $exchangeRate;
+    }
+
+    /**
+     * Optimistic locking version: incremented every time the currency is saved.
+     */
+    public function version(): int
+    {
+        return $this->version;
     }
 
     public function id(): ?CurrencyId

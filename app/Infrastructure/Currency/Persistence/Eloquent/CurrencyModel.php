@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * @property int $id
+ * @property int $version
  * @property string $name
  * @property string $symbol
  * @property string $exchange_rate

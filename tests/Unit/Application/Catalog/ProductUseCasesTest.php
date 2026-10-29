@@ -10,9 +10,13 @@ use App\Application\Catalog\UseCases\ListProductPrices;
 use App\Application\Catalog\UseCases\ListProducts;
 use App\Application\Catalog\UseCases\SetProductPrice;
 use App\Application\Catalog\UseCases\UpdateProduct;
+use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
+use App\Domain\Catalog\ValueObjects\Amount;
 use App\Domain\Catalog\ValueObjects\ProductId;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
+use Tests\Support\ConflictingProductRepository;
 use Tests\Support\InMemoryCurrencyRepository;
 use Tests\Support\InMemoryProductRepository;
 
@@ -170,12 +174,100 @@ test('it lists the prices of a product', function () {
         ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
     );
 
-    $prices = (new ListProductPrices($this->products))->execute($product->id());
+    $page = (new ListProductPrices($this->products))->execute($product->id(), page: 1, perPage: 15);
 
-    expect($prices)->toHaveCount(1)
-        ->and($prices[0]->currencyId()->equals($this->eur->id()))->toBeTrue();
+    expect($page->total)->toBe(1)
+        ->and($page->items[0]->currencyId()->equals($this->eur->id()))->toBeTrue();
+});
+
+test('it lists the prices of a product page by page', function () {
+    $product = createProduct($this);
+    $ars = $this->currencies->add('Peso argentino');
+    $useCase = new SetProductPrice($this->products, $this->currencies);
+    $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']));
+    $useCase->execute($product->id(), ProductPriceData::fromArray(['currency_id' => $ars->id()->value(), 'price' => '1000']));
+
+    $page = (new ListProductPrices($this->products))->execute($product->id(), page: 2, perPage: 1);
+
+    expect($page->total)->toBe(2)
+        ->and($page->items)->toHaveCount(1)
+        ->and($page->items[0]->currencyId()->equals($ars->id()))->toBeTrue();
 });
 
 test('listing the prices of an unknown product fails', function () {
-    (new ListProductPrices($this->products))->execute(new ProductId(99));
+    (new ListProductPrices($this->products))->execute(new ProductId(99), page: 1, perPage: 15);
 })->throws(ProductNotFound::class);
+
+test('saving a product bumps its version', function () {
+    $product = createProduct($this);
+
+    $updated = (new UpdateProduct($this->products, $this->currencies))
+        ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']));
+
+    expect($product->version())->toBe(1)
+        ->and($updated->version())->toBe(2);
+});
+
+test('a product can not be updated from a stale version', function () {
+    $product = createProduct($this);
+    $useCase = new UpdateProduct($this->products, $this->currencies);
+    $useCase->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'First edit']));
+
+    try {
+        $useCase->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Second edit']), expectedVersion: 1);
+        $this->fail('Expected StaleVersion to be thrown.');
+    } catch (StaleVersion $e) {
+        expect($e->expected)->toBe(1)->and($e->actual)->toBe(2);
+    }
+
+    expect($this->products->findById($product->id())->name()->value())->toBe('First edit');
+});
+
+test('a product can be updated from its current version', function () {
+    $product = createProduct($this);
+
+    $updated = (new UpdateProduct($this->products, $this->currencies))
+        ->execute($product->id(), productData($this->usd->id()->value(), ['name' => 'Mouse']), expectedVersion: 1);
+
+    expect($updated->name()->value())->toBe('Mouse');
+});
+
+test('a concurrent modification between loading and saving is detected', function () {
+    $product = createProduct($this);
+    $copyA = $this->products->findById($product->id());
+    $copyB = $this->products->findById($product->id());
+
+    $copyA->setPriceIn($this->eur->id(), new Amount('90'));
+    $this->products->save($copyA);
+
+    $copyB->setPriceIn($this->eur->id(), new Amount('95'));
+    $this->products->save($copyB);
+})->throws(ConcurrencyConflict::class);
+
+test('registering a price retries when another request modified the product', function () {
+    $product = createProduct($this);
+    $flaky = new ConflictingProductRepository($this->products, conflicts: 2);
+
+    $result = (new SetProductPrice($flaky, $this->currencies))->execute(
+        $product->id(),
+        ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
+    );
+
+    expect($result->price->amount()->value())->toBe('92.00')
+        ->and($flaky->attempts)->toBe(3);
+});
+
+test('registering a price gives up after three conflicting attempts', function () {
+    $product = createProduct($this);
+    $flaky = new ConflictingProductRepository($this->products, conflicts: 3);
+
+    try {
+        (new SetProductPrice($flaky, $this->currencies))->execute(
+            $product->id(),
+            ProductPriceData::fromArray(['currency_id' => $this->eur->id()->value(), 'price' => '92']),
+        );
+        $this->fail('Expected ConcurrencyConflict to be thrown.');
+    } catch (ConcurrencyConflict) {
+        expect($flaky->attempts)->toBe(3);
+    }
+});

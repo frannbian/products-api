@@ -3,11 +3,13 @@
 namespace App\Infrastructure\Identity\Persistence;
 
 use App\Domain\Identity\Entities\User;
+use App\Domain\Identity\Exceptions\EmailAlreadyRegistered;
 use App\Domain\Identity\Repositories\UserRepository;
 use App\Domain\Identity\ValueObjects\Email;
 use App\Domain\Identity\ValueObjects\UserId;
 use App\Infrastructure\Identity\Persistence\Eloquent\UserMapper;
 use App\Infrastructure\Identity\Persistence\Eloquent\UserModel;
+use Illuminate\Database\UniqueConstraintViolationException;
 
 final class EloquentUserRepository implements UserRepository
 {
@@ -40,7 +42,12 @@ final class EloquentUserRepository implements UserRepository
             ? new UserModel
             : UserModel::findOrFail($user->id()->value());
 
-        UserMapper::fill($model, $user)->save();
+        try {
+            UserMapper::fill($model, $user)->save();
+        } catch (UniqueConstraintViolationException) {
+            // Another registration with the same email won the race.
+            throw new EmailAlreadyRegistered($user->email());
+        }
 
         return $user->id() === null ? UserMapper::toDomain($model) : $user;
     }

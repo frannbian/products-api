@@ -17,15 +17,19 @@ final class CurrencyMapper
             new CurrencyName($model->name),
             new CurrencySymbol($model->symbol),
             new ExchangeRate($model->exchange_rate),
+            $model->version,
         );
     }
 
-    public static function fill(CurrencyModel $model, Currency $currency): CurrencyModel
+    /**
+     * @return array<string, string>
+     */
+    public static function attributes(Currency $currency): array
     {
-        return $model->fill([
+        return [
             'name' => $currency->name()->value(),
             'symbol' => $currency->symbol()->value(),
             'exchange_rate' => $currency->exchangeRate()->value(),
-        ]);
+        ];
     }
 }

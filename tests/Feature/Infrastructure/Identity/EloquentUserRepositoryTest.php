@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Identity\Entities\User;
+use App\Domain\Identity\Exceptions\EmailAlreadyRegistered;
 use App\Domain\Identity\ValueObjects\Email;
 use App\Domain\Identity\ValueObjects\HashedPassword;
 use App\Domain\Identity\ValueObjects\UserId;
@@ -91,3 +92,10 @@ test('it persists a changed password', function () {
 
     expect($model->fresh()->password)->toBe('new-hashed-password');
 });
+
+test('a duplicate email that slips past the check is reported as registered', function () {
+    UserModel::factory()->create(['email' => 'john@example.com']);
+
+    // Simulates two registrations that both checked the email before either saved.
+    $this->repository->save(newUser());
+})->throws(EmailAlreadyRegistered::class);

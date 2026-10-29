@@ -6,6 +6,7 @@ use App\Domain\Catalog\ValueObjects\ProductDescription;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Catalog\ValueObjects\ProductName;
 use App\Domain\Currency\ValueObjects\CurrencyId;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductModel;
 use App\Infrastructure\Catalog\Persistence\Eloquent\ProductPriceModel;
 use App\Infrastructure\Catalog\Persistence\EloquentProductRepository;
@@ -120,4 +121,52 @@ test('a deleted product still counts as using its currency', function () {
     ProductModel::factory()->for($this->usd, 'currency')->create()->delete();
 
     expect($this->repository->existsWithCurrency(new CurrencyId($this->usd->id)))->toBeTrue();
+});
+
+test('it knows whether a product exists', function () {
+    $model = ProductModel::factory()->for($this->usd, 'currency')->create();
+    $deleted = ProductModel::factory()->for($this->usd, 'currency')->create();
+    $deleted->delete();
+
+    expect($this->repository->exists(new ProductId($model->id)))->toBeTrue()
+        ->and($this->repository->exists(new ProductId($deleted->id)))->toBeFalse()
+        ->and($this->repository->exists(new ProductId(999)))->toBeFalse();
+});
+
+test('it paginates the prices of a product ordered by id', function () {
+    $ars = CurrencyModel::factory()->create();
+    $model = ProductModel::factory()->for($this->usd, 'currency')->create();
+    $other = ProductModel::factory()->for($this->usd, 'currency')->create();
+    ProductPriceModel::factory()->for($model, 'product')->for($this->eur, 'currency')->create();
+    $second = ProductPriceModel::factory()->for($model, 'product')->for($ars, 'currency')->create(['price' => '1000']);
+    ProductPriceModel::factory()->for($other, 'product')->for($this->eur, 'currency')->create();
+
+    $page = $this->repository->paginatePrices(new ProductId($model->id), page: 2, perPage: 1);
+
+    expect($page->total)->toBe(2)
+        ->and($page->items)->toHaveCount(1)
+        ->and($page->items[0]->id()->value())->toBe($second->id)
+        ->and($page->items[0]->amount()->value())->toBe('1000.00');
+});
+
+test('saving an existing product bumps its version', function () {
+    $product = $this->repository->save(draftProduct($this->usd->id));
+    $product->setPriceIn(new CurrencyId($this->eur->id), new Amount('92'));
+
+    $saved = $this->repository->save($product);
+
+    expect($product->version())->toBe(1)
+        ->and($saved->version())->toBe(2)
+        ->and(ProductModel::find($saved->id()->value())->version)->toBe(2);
+});
+
+test('saving a stale copy fails and changes nothing', function () {
+    $product = $this->repository->save(draftProduct($this->usd->id));
+    $stale = $this->repository->findById($product->id());
+    $this->repository->save($product);
+
+    $stale->setPriceIn(new CurrencyId($this->eur->id), new Amount('92'));
+
+    expect(fn () => $this->repository->save($stale))->toThrow(ConcurrencyConflict::class)
+        ->and(ProductPriceModel::count())->toBe(0);
 });

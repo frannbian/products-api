@@ -8,6 +8,7 @@ use App\Domain\Catalog\Repositories\ProductRepository;
 use App\Domain\Catalog\ValueObjects\ProductId;
 use App\Domain\Catalog\ValueObjects\ProductPriceId;
 use App\Domain\Currency\ValueObjects\CurrencyId;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Domain\Shared\Paginated;
 
 final class InMemoryProductRepository implements ProductRepository
@@ -39,8 +40,24 @@ final class InMemoryProductRepository implements ProductRepository
         return $this->products[$id->value()] ?? null;
     }
 
+    public function exists(ProductId $id): bool
+    {
+        return isset($this->products[$id->value()]);
+    }
+
+    public function paginatePrices(ProductId $id, int $page, int $perPage): Paginated
+    {
+        $prices = $this->products[$id->value()]?->prices() ?? [];
+
+        return new Paginated(array_slice($prices, ($page - 1) * $perPage, $perPage), count($prices), $page, $perPage);
+    }
+
     public function save(Product $product): Product
     {
+        if ($product->id() !== null && $this->products[$product->id()->value()]?->version() !== $product->version()) {
+            throw new ConcurrencyConflict('product', $product->id()->value());
+        }
+
         $product = Product::reconstitute(
             $product->id() ?? new ProductId($this->nextId++),
             $product->name(),
@@ -51,7 +68,8 @@ final class InMemoryProductRepository implements ProductRepository
             $product->manufacturingCost(),
             array_map(fn (ProductPrice $price) => $price->id() === null
                 ? ProductPrice::reconstitute(new ProductPriceId($this->nextPriceId++), $price->currencyId(), $price->amount())
-                : $price, $product->prices()),
+                : ProductPrice::reconstitute($price->id(), $price->currencyId(), $price->amount()), $product->prices()),
+            $product->id() === null ? 1 : $product->version() + 1,
         );
 
         return $this->products[$product->id()->value()] = $product;

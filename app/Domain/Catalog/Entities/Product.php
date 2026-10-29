@@ -28,6 +28,7 @@ final class Product
         private Amount $taxCost,
         private Amount $manufacturingCost,
         private array $prices,
+        private int $version,
     ) {}
 
     public static function create(
@@ -38,7 +39,7 @@ final class Product
         Amount $taxCost,
         Amount $manufacturingCost,
     ): self {
-        return new self(null, $name, $description, $price, $currencyId, $taxCost, $manufacturingCost, []);
+        return new self(null, $name, $description, $price, $currencyId, $taxCost, $manufacturingCost, [], 1);
     }
 
     /**
@@ -53,8 +54,9 @@ final class Product
         Amount $taxCost,
         Amount $manufacturingCost,
         array $prices,
+        int $version = 1,
     ): self {
-        return new self($id, $name, $description, $price, $currencyId, $taxCost, $manufacturingCost, $prices);
+        return new self($id, $name, $description, $price, $currencyId, $taxCost, $manufacturingCost, $prices, $version);
     }
 
     /**
@@ -114,6 +116,14 @@ final class Product
         }
 
         return null;
+    }
+
+    /**
+     * Optimistic locking version: incremented every time the product is saved.
+     */
+    public function version(): int
+    {
+        return $this->version;
     }
 
     public function id(): ?ProductId

@@ -5,18 +5,21 @@ namespace App\Presentation\Http\Exceptions;
 use App\Application\Catalog\Exceptions\UnknownCurrency;
 use App\Application\Identity\Exceptions\InvalidVerificationLink;
 use App\Application\Identity\Exceptions\PasswordResetFailed;
+use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Exceptions\PriceInBaseCurrency;
 use App\Domain\Catalog\Exceptions\ProductNotFound;
 use App\Domain\Currency\Exceptions\CurrencyInUse;
 use App\Domain\Currency\Exceptions\CurrencyNameAlreadyTaken;
 use App\Domain\Currency\Exceptions\CurrencyNotFound;
 use App\Domain\Identity\Exceptions\EmailAlreadyRegistered;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use App\Presentation\Http\Messages\PasswordResetMessage;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\PreconditionFailedHttpException;
 
 /**
  * Translates domain and application exceptions into HTTP errors. The inner
@@ -32,6 +35,10 @@ final class DomainExceptionRenderer
 
         // 409 Conflict
         $exceptions->map(CurrencyInUse::class, fn (CurrencyInUse $e) => new ConflictHttpException(__('currency.in_use'), $e));
+        $exceptions->map(ConcurrencyConflict::class, fn (ConcurrencyConflict $e) => new ConflictHttpException(__('http.concurrency_conflict'), $e));
+
+        // 412 Precondition Failed: If-Match does not hold the current version
+        $exceptions->map(StaleVersion::class, fn (StaleVersion $e) => new PreconditionFailedHttpException(__('http.stale_version'), $e));
 
         // 403 Forbidden
         $exceptions->map(InvalidVerificationLink::class, fn (InvalidVerificationLink $e) => new AccessDeniedHttpException(__('auth.verification_link_invalid'), $e));

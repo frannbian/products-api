@@ -23,23 +23,32 @@ final class ProductMapper
             new CurrencyId($model->currency_id),
             new Amount($model->tax_cost),
             new Amount($model->manufacturing_cost),
-            $model->prices->map(fn (ProductPriceModel $price) => ProductPrice::reconstitute(
-                new ProductPriceId($price->id),
-                new CurrencyId($price->currency_id),
-                new Amount($price->price),
-            ))->all(),
+            $model->prices->map(self::priceToDomain(...))->all(),
+            $model->version,
         );
     }
 
-    public static function fill(ProductModel $model, Product $product): ProductModel
+    public static function priceToDomain(ProductPriceModel $model): ProductPrice
     {
-        return $model->fill([
+        return ProductPrice::reconstitute(
+            new ProductPriceId($model->id),
+            new CurrencyId($model->currency_id),
+            new Amount($model->price),
+        );
+    }
+
+    /**
+     * @return array<string, string|int>
+     */
+    public static function attributes(Product $product): array
+    {
+        return [
             'name' => $product->name()->value(),
             'description' => $product->description()->value(),
             'price' => $product->price()->value(),
             'currency_id' => $product->currencyId()->value(),
             'tax_cost' => $product->taxCost()->value(),
             'manufacturing_cost' => $product->manufacturingCost()->value(),
-        ]);
+        ];
     }
 }

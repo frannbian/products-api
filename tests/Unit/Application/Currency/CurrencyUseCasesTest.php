@@ -6,6 +6,7 @@ use App\Application\Currency\UseCases\DeleteCurrency;
 use App\Application\Currency\UseCases\GetCurrency;
 use App\Application\Currency\UseCases\ListCurrencies;
 use App\Application\Currency\UseCases\UpdateCurrency;
+use App\Application\Shared\Exceptions\StaleVersion;
 use App\Domain\Catalog\Entities\Product;
 use App\Domain\Catalog\ValueObjects\Amount;
 use App\Domain\Catalog\ValueObjects\ProductDescription;
@@ -14,6 +15,7 @@ use App\Domain\Currency\Exceptions\CurrencyInUse;
 use App\Domain\Currency\Exceptions\CurrencyNameAlreadyTaken;
 use App\Domain\Currency\Exceptions\CurrencyNotFound;
 use App\Domain\Currency\ValueObjects\CurrencyId;
+use App\Domain\Shared\Exceptions\ConcurrencyConflict;
 use Tests\Support\InMemoryCurrencyRepository;
 use Tests\Support\InMemoryProductRepository;
 
@@ -27,11 +29,15 @@ function euroData(array $overrides = []): CurrencyData
     return CurrencyData::fromArray([...['name' => 'Euro', 'symbol' => '€', 'exchange_rate' => '0.92'], ...$overrides]);
 }
 
-test('it lists every currency', function () {
-    $usd = $this->currencies->add('US Dollar');
-    $eur = $this->currencies->add('Euro');
+test('it lists currencies page by page', function () {
+    $this->currencies->add('US Dollar');
+    $this->currencies->add('Euro');
+    $ars = $this->currencies->add('Peso argentino');
 
-    expect((new ListCurrencies($this->currencies))->execute())->toBe([$usd, $eur]);
+    $page = (new ListCurrencies($this->currencies))->execute(page: 2, perPage: 2);
+
+    expect($page->total)->toBe(3)
+        ->and($page->items)->toBe([$ars]);
 });
 
 test('it creates a currency', function () {
@@ -105,3 +111,28 @@ test('a currency used by a product can not be deleted', function () {
 test('deleting an unknown currency fails', function () {
     (new DeleteCurrency($this->currencies, $this->products))->execute(new CurrencyId(99));
 })->throws(CurrencyNotFound::class);
+
+test('a currency can not be updated from a stale version', function () {
+    $eur = $this->currencies->add('Euro');
+    $useCase = new UpdateCurrency($this->currencies);
+    $useCase->execute($eur->id(), euroData(['exchange_rate' => '0.95']));
+
+    $useCase->execute($eur->id(), euroData(['exchange_rate' => '0.99']), expectedVersion: 1);
+})->throws(StaleVersion::class);
+
+test('a currency can be updated from its current version', function () {
+    $eur = $this->currencies->add('Euro');
+
+    $updated = (new UpdateCurrency($this->currencies))->execute($eur->id(), euroData(['exchange_rate' => '0.95']), expectedVersion: 1);
+
+    expect($updated->version())->toBe(2);
+});
+
+test('a concurrent currency modification is detected', function () {
+    $eur = $this->currencies->add('Euro');
+    $copyA = $this->currencies->findById($eur->id());
+    $copyB = $this->currencies->findById($eur->id());
+
+    $this->currencies->save($copyA);
+    $this->currencies->save($copyB);
+})->throws(ConcurrencyConflict::class);

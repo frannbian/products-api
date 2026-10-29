@@ -30,3 +30,11 @@ test('a currency can be reconstituted and updated', function () {
         ->and($currency->symbol()->value())->toBe('EUR')
         ->and($currency->exchangeRate()->value())->toBe('0.950000');
 });
+
+test('a new currency starts at version 1 and a reconstituted one keeps its version', function () {
+    $new = Currency::create(new CurrencyName('Euro'), new CurrencySymbol('€'), new ExchangeRate('1'));
+    $stored = Currency::reconstitute(new CurrencyId(1), new CurrencyName('Euro'), new CurrencySymbol('€'), new ExchangeRate('1'), version: 4);
+
+    expect($new->version())->toBe(1)
+        ->and($stored->version())->toBe(4);
+});

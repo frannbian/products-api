@@ -8,6 +8,7 @@ use App\Presentation\Http\Controllers\Auth\VerifyEmailController;
 use App\Presentation\Http\Controllers\Catalog\ProductController;
 use App\Presentation\Http\Controllers\Catalog\ProductPriceController;
 use App\Presentation\Http\Controllers\Currency\CurrencyController;
+use App\Presentation\Http\Middleware\EnsureIdempotency;
 use Illuminate\Support\Facades\Route;
 
 // Route ids are positive integers that fit in a 64-bit int; anything else is a 404.
@@ -43,9 +44,12 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-Route::middleware('auth:api')->group(function () {
+// Idempotency runs after auth so keys are scoped to the authenticated user.
+// Listings use 'cache.headers:private;etag': an ETag from their content and a
+// 304 when unchanged. Private, as responses depend on the authenticated user.
+Route::middleware(['auth:api', EnsureIdempotency::class])->group(function () {
     Route::controller(ProductController::class)->prefix('products')->name('products.')->group(function () {
-        Route::get('/', 'index')->name('index');
+        Route::get('/', 'index')->middleware('cache.headers:private;etag')->name('index');
         Route::post('/', 'store')->name('store');
         Route::get('/{product}', 'show')->name('show');
         Route::put('/{product}', 'update')->name('update');
@@ -53,12 +57,12 @@ Route::middleware('auth:api')->group(function () {
     });
 
     Route::controller(ProductPriceController::class)->prefix('products/{product}/prices')->name('products.prices.')->group(function () {
-        Route::get('/', 'index')->name('index');
+        Route::get('/', 'index')->middleware('cache.headers:private;etag')->name('index');
         Route::post('/', 'store')->name('store');
     });
 
     Route::controller(CurrencyController::class)->prefix('currencies')->name('currencies.')->group(function () {
-        Route::get('/', 'index')->name('index');
+        Route::get('/', 'index')->middleware('cache.headers:private;etag')->name('index');
         Route::post('/', 'store')->name('store');
         Route::get('/{currency}', 'show')->name('show');
         Route::put('/{currency}', 'update')->name('update');
