@@ -8,6 +8,9 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 - [Ejemplos](#ejemplos)
 - [Errores](#errores)
 - [Seguridad](#seguridad)
+- [Concurrencia](#concurrencia)
+- [Resiliencia](#resiliencia)
+- [Performance](#performance)
 - [Arquitectura](#arquitectura)
 - [Tests](#tests)
 - [Decisiones de diseño](#decisiones-de-diseño)
@@ -56,6 +59,8 @@ El token vence según `JWT_TTL` (60 minutos por defecto). Se renueva con `POST /
 
 Base URL: `/api`. Todas las respuestas son JSON.
 
+Todos los listados están paginados con `?page=1&per_page=15` (máximo 100) y devuelven `data`, `links` y `meta`. Los recursos individuales devuelven su versión en el header `ETag` (ver [Concurrencia](#concurrencia)).
+
 ### Productos
 
 | Método | Ruta | Descripción | Respuesta |
@@ -65,14 +70,14 @@ Base URL: `/api`. Todas las respuestas son JSON.
 | GET | `/products/{id}` | Obtiene un producto | 200 |
 | PUT | `/products/{id}` | Reemplaza todos los campos del producto | 200 |
 | DELETE | `/products/{id}` | Elimina el producto (soft delete) | 204 |
-| GET | `/products/{id}/prices` | Lista los precios del producto en otras divisas | 200 |
+| GET | `/products/{id}/prices` | Lista paginada de los precios del producto en otras divisas | 200 |
 | POST | `/products/{id}/prices` | Registra el precio en una divisa: lo crea o lo reemplaza si ya existe | 201 / 200 |
 
 ### Divisas
 
 | Método | Ruta | Descripción | Respuesta |
 |---|---|---|---|
-| GET | `/currencies` | Lista todas las divisas | 200 |
+| GET | `/currencies` | Lista paginada de divisas | 200 |
 | POST | `/currencies` | Crea una divisa (nombre único) | 201 |
 | GET | `/currencies/{id}` | Obtiene una divisa | 200 |
 | PUT | `/currencies/{id}` | Reemplaza todos los campos de la divisa | 200 |
@@ -175,12 +180,16 @@ curl "http://localhost:8000/api/products?per_page=2&page=1" -H "Authorization: B
 
 | Código | Cuándo | Cuerpo |
 |---|---|---|
+| 304 | `If-None-Match` coincide con la versión actual | sin cuerpo |
+| 400 | Header `Idempotency-Key` vacío o de más de 255 caracteres | `{"message": "..."}` |
 | 401 | Falta el token, es inválido, venció o fue revocado | `{"message": "Unauthenticated."}` |
 | 403 | Link de verificación de email inválido | `{"message": "..."}` |
 | 404 | El producto o la divisa no existe, o el id no es un entero válido | `{"message": "The requested product does not exist."}` |
-| 409 | Se intenta borrar una divisa que usan productos | `{"message": "The currency is used by products and can not be deleted."}` |
+| 409 | Se borra una divisa en uso, otra request modificó el recurso al mismo tiempo, o una `Idempotency-Key` sigue en proceso | `{"message": "..."}` |
+| 412 | `If-Match` no coincide con la versión actual (alguien modificó el recurso) | `{"message": "The resource was modified since you read it. ..."}` |
 | 422 | Error de validación o de una regla de negocio | `{"message": "...", "errors": {"campo": ["..."]}}` |
 | 429 | Se superó el rate limit | `{"message": "Too Many Attempts."}` |
+| 503 | La base de datos no responde; reintentar después de `Retry-After` segundos | `{"message": "The service is temporarily unavailable. Try again later."}` |
 
 Ejemplos de reglas de negocio que responden `422` sobre el campo afectado:
 
@@ -204,6 +213,47 @@ Ejemplos de reglas de negocio que responden `422` sobre el campo afectado:
 - **CORS** limitado a `api/*` y al origen configurado en `FRONTEND_URL`, sin cookies.
 - **Contraseñas hasheadas** con bcrypt y nunca expuestas en las respuestas.
 - **En producción, `APP_DEBUG=false`,** así los errores responden solo el `message`, sin stack trace ni rutas internas. La UI de documentación solo se sirve con `APP_ENV=local`.
+
+## Concurrencia
+
+**Optimistic locking con ETag / If-Match.** Productos y divisas tienen una versión que aumenta con cada cambio. Se expone en el header `ETag`:
+
+```bash
+curl -i http://localhost:8000/api/products/1 -H "Authorization: Bearer $TOKEN"
+# ETag: "3"
+
+curl -X PUT http://localhost:8000/api/products/1 -H 'If-Match: "3"' ...
+# 200 con ETag: "4"; si alguien lo modificó antes, 412 y no se pisa nada
+```
+
+El `UPDATE` se hace con `WHERE id = ? AND version = ?` en una sola sentencia atómica. Si otra request modificó la fila entre la lectura y la escritura, no se pierde el cambio: se responde `409`. `If-Match` es opcional; sin el header igual se detectan las escrituras concurrentes.
+
+**Precios en paralelo.** Registrar un precio modifica el agregado `Product`. Si dos requests chocan, `SetProductPrice` recarga el producto y reintenta, hasta 3 veces. Es seguro porque la operación es "fijar este precio".
+
+**Races sobre constraints.** Dos requests que crean la misma divisa o el mismo email pueden pasar el chequeo de unicidad a la vez. La base es la fuente de verdad: los repositorios traducen la violación del índice único a la regla de negocio (`422`). Lo mismo con una divisa que empieza a usarse mientras se borra (`409`). Cualquier violación que no se haya traducido responde `409`, nunca un `500` con SQL.
+
+**Idempotencia.** Los `POST` autenticados aceptan `Idempotency-Key`:
+
+- Un reintento con la misma clave y el mismo body devuelve la respuesta original, con `Idempotent-Replayed: true`, en vez de crear un duplicado.
+- Con otro body o en otro endpoint, responde `422`.
+- Si la primera request sigue en proceso, responde `409`.
+
+Las claves pertenecen a cada usuario y se guardan 24 horas. Solo se guardan las respuestas exitosas.
+
+## Resiliencia
+
+- **Health check:** `GET /up` verifica también la conexión a la base, así un load balancer saca de rotación una instancia que no puede trabajar.
+- **Base caída:** responde `503` con `Retry-After: 30` y un mensaje genérico, sin host ni `SQLSTATE`.
+- **Deadlocks:** las transacciones de escritura de productos se reintentan hasta 3 veces si la base las aborta.
+- **Errores de base no previstos:** se traducen a `409` (constraints) o `503` (conexión) en `Infrastructure/Shared/Persistence/DatabaseErrorRenderer`.
+
+## Performance
+
+- **Paginación** en todos los listados, resuelta en la base (`LIMIT/OFFSET`). Los precios se paginan sin cargar el agregado completo.
+- **Índices** en `products.currency_id` y `product_prices.currency_id`: PostgreSQL no indexa las foreign keys por su cuenta, y se usan para saber si una divisa está en uso. `(product_id, currency_id)` tiene un índice único.
+- **Eager loading** de los precios al leer productos, y **strict mode** de Eloquent fuera de producción: un N+1 o un atributo inexistente hace fallar el request en desarrollo y en los tests.
+- **Cache de "¿existe esta divisa?"**, la consulta que hace cada escritura de productos y precios. Solo se cachean respuestas positivas y se invalidan al borrar; si el cache quedara atrás, la foreign key igual rechaza la escritura. Las entidades no se cachean, así el optimistic locking siempre compara contra la versión real.
+- **Respuestas condicionales:** los listados y los recursos individuales devuelven `ETag` y responden `304` sin cuerpo cuando el cliente ya tiene esa versión (`If-None-Match`). Son `Cache-Control: private`, porque dependen del usuario autenticado.
 
 ## Arquitectura
 

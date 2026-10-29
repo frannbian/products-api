@@ -210,13 +210,32 @@
         "/currencies": {
             "get": {
                 "operationId": "currencies.index",
-                "summary": "List every currency",
+                "summary": "List currencies, paginated",
                 "tags": [
                     "Currency"
                 ],
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "Array of `CurrencyResource`",
+                        "description": "Paginated set of `CurrencyResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -227,50 +246,128 @@
                                             "items": {
                                                 "$ref": "#/components/schemas/CurrencyResource"
                                             }
+                                        },
+                                        "links": {
+                                            "type": "object",
+                                            "properties": {
+                                                "first": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "last": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "prev": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "next": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "first",
+                                                "last",
+                                                "prev",
+                                                "next"
+                                            ]
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "from": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "minimum": 1
+                                                },
+                                                "last_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "links": {
+                                                    "type": "array",
+                                                    "description": "Generated paginator links.",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "active": {
+                                                                "type": "boolean"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "url",
+                                                            "label",
+                                                            "active"
+                                                        ]
+                                                    }
+                                                },
+                                                "path": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ],
+                                                    "description": "Base path for paginator generated URLs."
+                                                },
+                                                "per_page": {
+                                                    "type": "integer",
+                                                    "description": "Number of items shown per page.",
+                                                    "minimum": 0
+                                                },
+                                                "to": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "description": "Number of the last item in the slice.",
+                                                    "minimum": 1
+                                                },
+                                                "total": {
+                                                    "type": "integer",
+                                                    "description": "Total number of items being paginated.",
+                                                    "minimum": 0
+                                                }
+                                            },
+                                            "required": [
+                                                "current_page",
+                                                "from",
+                                                "last_page",
+                                                "links",
+                                                "path",
+                                                "per_page",
+                                                "to",
+                                                "total"
+                                            ]
                                         }
                                     },
                                     "required": [
-                                        "data"
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/AuthenticationException"
-                    }
-                }
-            },
-            "post": {
-                "operationId": "currencies.store",
-                "summary": "Create a currency",
-                "tags": [
-                    "Currency"
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/CurrencyRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "`CurrencyResource`",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/components/schemas/CurrencyResource"
-                                        }
-                                    },
-                                    "required": [
-                                        "data"
+                                        "data",
+                                        "links",
+                                        "meta"
                                     ]
                                 }
                             }
@@ -283,28 +380,42 @@
                         "$ref": "#/components/responses/ValidationException"
                     }
                 }
-            }
-        },
-        "/currencies/{currency}": {
-            "get": {
-                "operationId": "currencies.show",
-                "summary": "Get a currency",
+            },
+            "post": {
+                "operationId": "currencies.store",
+                "summary": "Create a currency",
                 "tags": [
                     "Currency"
                 ],
                 "parameters": [
                     {
-                        "name": "currency",
-                        "in": "path",
-                        "required": true,
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Unique key (1-255 characters) to retry the request safely: a retry with the same key and body replays the first response instead of repeating it.",
                         "schema": {
-                            "type": "integer"
+                            "type": "string"
                         }
                     }
                 ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CurrencyRequest"
+                            }
+                        }
+                    }
+                },
                 "responses": {
-                    "200": {
-                        "description": "`CurrencyResource`",
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
+                    "201": {
+                        "description": "Currency created",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -319,6 +430,62 @@
                                     ]
                                 }
                             }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "Version of the currency, to use in If-Match and If-None-Match.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/currencies/{currency}": {
+            "get": {
+                "operationId": "currencies.show",
+                "description": "The ETag header holds the currency version, usable in If-None-Match\nand If-Match.",
+                "summary": "Get a currency",
+                "tags": [
+                    "Currency"
+                ],
+                "parameters": [
+                    {
+                        "name": "currency",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "If-None-Match",
+                        "in": "header",
+                        "description": "ETag you already have: responds 304 without a body when the currency did not change.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "Version of the currency, to use in If-Match and If-None-Match.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     },
                     "404": {
@@ -326,11 +493,22 @@
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "304": {
+                        "description": "Not modified: the version in If-None-Match is the current one",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
             "put": {
                 "operationId": "currencies.update",
+                "description": "Send the ETag you read in If-Match: a different version responds 412.",
                 "summary": "Replace every field of a currency",
                 "tags": [
                     "Currency"
@@ -342,6 +520,14 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "description": "ETag you read: the update only succeeds if the currency still has that version (412 otherwise).",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -357,25 +543,31 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "`CurrencyResource`",
+                        "description": "",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/components/schemas/CurrencyResource"
-                                        }
-                                    },
-                                    "required": [
-                                        "data"
-                                    ]
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "New version of the currency.",
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         }
                     },
+                    "412": {
+                        "$ref": "#/components/responses/StaleVersion"
+                    },
                     "404": {
                         "$ref": "#/components/responses/CurrencyNotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/ConcurrencyConflict"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -733,6 +925,16 @@
                 "tags": [
                     "Product"
                 ],
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Unique key (1-255 characters) to retry the request safely: a retry with the same key and body replays the first response instead of repeating it.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -744,8 +946,14 @@
                     }
                 },
                 "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
                     "201": {
-                        "description": "`ProductResource`",
+                        "description": "Product created",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -760,13 +968,15 @@
                                     ]
                                 }
                             }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "Version of the product, to use in If-Match and If-None-Match.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
                         }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/AuthenticationException"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             }
@@ -774,6 +984,7 @@
         "/products/{product}": {
             "get": {
                 "operationId": "products.show",
+                "description": "The ETag header holds the product version: send it back in If-None-Match\nto get a 304 when nothing changed, or in If-Match when updating.",
                 "summary": "Get a product",
                 "tags": [
                     "Product"
@@ -786,23 +997,31 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "name": "If-None-Match",
+                        "in": "header",
+                        "description": "ETag you already have: responds 304 without a body when the product did not change.",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "`ProductResource`",
+                        "description": "",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/components/schemas/ProductResource"
-                                        }
-                                    },
-                                    "required": [
-                                        "data"
-                                    ]
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "Version of the product, to use in If-Match and If-None-Match.",
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         }
@@ -812,11 +1031,22 @@
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "304": {
+                        "description": "Not modified: the version in If-None-Match is the current one",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
             "put": {
                 "operationId": "products.update",
+                "description": "Send the ETag you read in If-Match to make sure nobody changed the\nproduct in between: a different version responds 412.",
                 "summary": "Replace every field of a product",
                 "tags": [
                     "Product"
@@ -828,6 +1058,14 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "description": "ETag you read: the update only succeeds if the product still has that version (412 otherwise).",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -843,25 +1081,31 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "`ProductResource`",
+                        "description": "",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/components/schemas/ProductResource"
-                                        }
-                                    },
-                                    "required": [
-                                        "data"
-                                    ]
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "headers": {
+                            "ETag": {
+                                "description": "New version of the product.",
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         }
                     },
+                    "412": {
+                        "$ref": "#/components/responses/StaleVersion"
+                    },
                     "404": {
                         "$ref": "#/components/responses/ProductNotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/ConcurrencyConflict"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -903,7 +1147,7 @@
         "/products/{product}/prices": {
             "get": {
                 "operationId": "products.prices.index",
-                "summary": "List the prices of a product in other currencies",
+                "summary": "List the prices of a product in other currencies, paginated",
                 "tags": [
                     "ProductPrice"
                 ],
@@ -915,11 +1159,28 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Array of `ProductPriceResource`",
+                        "description": "Paginated set of `ProductPriceResource`",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -930,10 +1191,128 @@
                                             "items": {
                                                 "$ref": "#/components/schemas/ProductPriceResource"
                                             }
+                                        },
+                                        "links": {
+                                            "type": "object",
+                                            "properties": {
+                                                "first": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "last": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "prev": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                },
+                                                "next": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "first",
+                                                "last",
+                                                "prev",
+                                                "next"
+                                            ]
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "from": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "minimum": 1
+                                                },
+                                                "last_page": {
+                                                    "type": "integer",
+                                                    "minimum": 1
+                                                },
+                                                "links": {
+                                                    "type": "array",
+                                                    "description": "Generated paginator links.",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "active": {
+                                                                "type": "boolean"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "url",
+                                                            "label",
+                                                            "active"
+                                                        ]
+                                                    }
+                                                },
+                                                "path": {
+                                                    "type": [
+                                                        "string",
+                                                        "null"
+                                                    ],
+                                                    "description": "Base path for paginator generated URLs."
+                                                },
+                                                "per_page": {
+                                                    "type": "integer",
+                                                    "description": "Number of items shown per page.",
+                                                    "minimum": 0
+                                                },
+                                                "to": {
+                                                    "type": [
+                                                        "integer",
+                                                        "null"
+                                                    ],
+                                                    "description": "Number of the last item in the slice.",
+                                                    "minimum": 1
+                                                },
+                                                "total": {
+                                                    "type": "integer",
+                                                    "description": "Total number of items being paginated.",
+                                                    "minimum": 0
+                                                }
+                                            },
+                                            "required": [
+                                                "current_page",
+                                                "from",
+                                                "last_page",
+                                                "links",
+                                                "path",
+                                                "per_page",
+                                                "to",
+                                                "total"
+                                            ]
                                         }
                                     },
                                     "required": [
-                                        "data"
+                                        "data",
+                                        "links",
+                                        "meta"
                                     ]
                                 }
                             }
@@ -944,12 +1323,16 @@
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             },
             "post": {
                 "operationId": "products.prices.store",
-                "summary": "Register the price of a product in a currency. Responds 201 when the\nprice is new and 200 when it replaces the existing one",
+                "description": "Responds 201 when the price is new and 200 when it replaces the\nexisting one. Retried automatically when another request modifies the\nproduct at the same time.",
+                "summary": "Register the price of a product in a currency",
                 "tags": [
                     "ProductPrice"
                 ],
@@ -960,6 +1343,14 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Unique key (1-255 characters) to retry the request safely: a retry with the same key and body replays the first response instead of repeating it.",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -987,11 +1378,32 @@
                     "404": {
                         "$ref": "#/components/responses/ProductNotFound"
                     },
+                    "409": {
+                        "$ref": "#/components/responses/ConcurrencyConflict"
+                    },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
                     },
                     "422": {
                         "$ref": "#/components/responses/ValidationException"
+                    },
+                    "201": {
+                        "description": "Price registered in a currency the product had no price in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/ProductPriceResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1406,6 +1818,44 @@
             },
             "ProductNotFound": {
                 "description": "The product does not exist",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Error overview."
+                                }
+                            },
+                            "required": [
+                                "message"
+                            ]
+                        }
+                    }
+                }
+            },
+            "StaleVersion": {
+                "description": "If-Match does not hold the current version",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "Error overview."
+                                }
+                            },
+                            "required": [
+                                "message"
+                            ]
+                        }
+                    }
+                }
+            },
+            "ConcurrencyConflict": {
+                "description": "Modified by another request at the same time",
                 "content": {
                     "application/json": {
                         "schema": {
