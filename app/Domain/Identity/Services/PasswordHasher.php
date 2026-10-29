@@ -2,9 +2,12 @@
 
 namespace App\Domain\Identity\Services;
 
+use App\Domain\Identity\ValueObjects\HashedPassword;
+use App\Domain\Identity\ValueObjects\Password;
+
 interface PasswordHasher
 {
-    public function hash(string $password): string;
+    public function hash(Password $password): HashedPassword;
 
-    public function verify(string $password, string $hashedPassword): bool;
+    public function verify(string $password, HashedPassword $hash): bool;
 }

@@ -2,7 +2,7 @@
 
 namespace App\Domain\Identity\ValueObjects;
 
-use InvalidArgumentException;
+use App\Domain\Identity\Exceptions\InvalidEmail;
 
 final readonly class Email
 {
@@ -13,7 +13,7 @@ final readonly class Email
         $value = strtolower(trim($value));
 
         if (! filter_var($value, FILTER_VALIDATE_EMAIL)) {
-            throw new InvalidArgumentException(
+            throw new InvalidEmail(
                 'The email address is invalid.'
             );
         }

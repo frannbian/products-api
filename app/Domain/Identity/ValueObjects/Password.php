@@ -2,7 +2,7 @@
 
 namespace App\Domain\Identity\ValueObjects;
 
-use InvalidArgumentException;
+use App\Domain\Identity\Exceptions\InvalidPassword;
 
 final readonly class Password
 {
@@ -10,7 +10,7 @@ final readonly class Password
         private string $value
     ) {
         if (strlen($this->value) < 8) {
-            throw new InvalidArgumentException(
+            throw new InvalidPassword(
                 'The password must contain at least 8 characters.'
             );
         }

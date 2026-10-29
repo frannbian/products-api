@@ -2,32 +2,90 @@
 
 namespace App\Domain\Identity\Entities;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Hidden;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
+use App\Domain\Identity\ValueObjects\Email;
+use App\Domain\Identity\ValueObjects\HashedPassword;
+use App\Domain\Identity\ValueObjects\UserId;
+use App\Domain\Identity\ValueObjects\Username;
+use DateTimeImmutable;
 
-#[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+final class User
 {
-    /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    private function __construct(
+        private ?UserId $id,
+        private Username $name,
+        private Email $email,
+        private HashedPassword $password,
+        private ?DateTimeImmutable $emailVerifiedAt,
+        private ?DateTimeImmutable $createdAt,
+    ) {}
+
+    public static function register(Username $name, Email $email, HashedPassword $password): self
+    {
+        return new self(null, $name, $email, $password, null, null);
+    }
+
+    public static function reconstitute(
+        UserId $id,
+        Username $name,
+        Email $email,
+        HashedPassword $password,
+        ?DateTimeImmutable $emailVerifiedAt,
+        ?DateTimeImmutable $createdAt,
+    ): self {
+        return new self($id, $name, $email, $password, $emailVerifiedAt, $createdAt);
+    }
+
+    public function id(): ?UserId
+    {
+        return $this->id;
+    }
+
+    public function name(): Username
+    {
+        return $this->name;
+    }
+
+    public function email(): Email
+    {
+        return $this->email;
+    }
+
+    public function password(): HashedPassword
+    {
+        return $this->password;
+    }
+
+    public function emailVerifiedAt(): ?DateTimeImmutable
+    {
+        return $this->emailVerifiedAt;
+    }
+
+    public function createdAt(): ?DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
+
+    public function hasVerifiedEmail(): bool
+    {
+        return $this->emailVerifiedAt !== null;
+    }
 
     /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
+     * Returns false when the email was already verified.
      */
-    protected function casts(): array
+    public function verifyEmail(DateTimeImmutable $at): bool
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
+        if ($this->hasVerifiedEmail()) {
+            return false;
+        }
+
+        $this->emailVerifiedAt = $at;
+
+        return true;
+    }
+
+    public function changePassword(HashedPassword $password): void
+    {
+        $this->password = $password;
     }
 }

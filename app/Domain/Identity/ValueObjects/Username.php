@@ -2,7 +2,7 @@
 
 namespace App\Domain\Identity\ValueObjects;
 
-use InvalidArgumentException;
+use App\Domain\Identity\Exceptions\InvalidUsername;
 
 final readonly class Username
 {
@@ -13,13 +13,13 @@ final readonly class Username
         $value = trim($value);
 
         if ($value === '') {
-            throw new InvalidArgumentException(
+            throw new InvalidUsername(
                 'The user name cannot be empty.'
             );
         }
 
         if (mb_strlen($value) > 100) {
-            throw new InvalidArgumentException(
+            throw new InvalidUsername(
                 'The user name cannot exceed 100 characters.'
             );
         }
