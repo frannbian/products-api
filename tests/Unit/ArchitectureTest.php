@@ -6,7 +6,7 @@ arch('domain does not depend on outer layers')
 
 arch('domain does not depend on the framework')
     ->expect('App\Domain')
-    ->not->toUse(['Illuminate', 'Laravel', 'Database']);
+    ->not->toUse(['Illuminate', 'Laravel', 'Database', 'PHPOpenSourceSaver']);
 
 arch('application does not depend on infrastructure or presentation')
     ->expect('App\Application')
@@ -21,6 +21,7 @@ arch('application only uses the framework for auth events')
         'Illuminate\Support',
         'Illuminate\Validation',
         'Laravel',
+        'PHPOpenSourceSaver',
     ]);
 
 arch('infrastructure implements contracts but never drives use cases')
@@ -28,6 +29,8 @@ arch('infrastructure implements contracts but never drives use cases')
     ->not->toUse([
         'App\Presentation',
         'App\Application\Identity\UseCases',
+        'App\Application\Catalog\UseCases',
+        'App\Application\Currency\UseCases',
     ]);
 
 arch('presentation delegates to the application layer')
@@ -35,10 +38,13 @@ arch('presentation delegates to the application layer')
     ->not->toUse([
         'App\Infrastructure',
         'App\Domain\Identity\Repositories',
+        'App\Domain\Catalog\Repositories',
+        'App\Domain\Currency\Repositories',
         'Illuminate\Support\Facades\Auth',
         'Illuminate\Support\Facades\Hash',
         'Illuminate\Support\Facades\Password',
         'Illuminate\Support\Facades\DB',
+        'Illuminate\Database\Eloquent',
     ]);
 
 arch('controllers live in the presentation layer')
@@ -47,19 +53,55 @@ arch('controllers live in the presentation layer')
     ->toExtend('App\Presentation\Http\Controllers\Controller')
     ->ignoring('App\Presentation\Http\Controllers\Controller');
 
+arch('form requests live in the presentation layer')
+    ->expect('Illuminate\Foundation\Http\FormRequest')
+    ->toOnlyBeUsedIn('App\Presentation\Http\Requests');
+
+arch('eloquent models live in the infrastructure layer')
+    ->expect('Illuminate\Database\Eloquent\Model')
+    ->toOnlyBeUsedIn('App\Infrastructure');
+
 arch('value objects are final and readonly')
-    ->expect('App\Domain\Identity\ValueObjects')
+    ->expect([
+        'App\Domain\Identity\ValueObjects',
+        'App\Domain\Catalog\ValueObjects',
+        'App\Domain\Currency\ValueObjects',
+    ])
     ->toBeFinal()
     ->toBeReadonly();
 
+arch('domain entities are final')
+    ->expect([
+        'App\Domain\Identity\Entities',
+        'App\Domain\Catalog\Entities',
+        'App\Domain\Currency\Entities',
+    ])
+    ->toBeFinal();
+
 arch('domain exceptions are domain exceptions')
-    ->expect('App\Domain\Identity\Exceptions')
+    ->expect([
+        'App\Domain\Identity\Exceptions',
+        'App\Domain\Catalog\Exceptions',
+        'App\Domain\Currency\Exceptions',
+    ])
     ->toExtend(DomainException::class);
+
+arch('repositories are interfaces in the domain')
+    ->expect([
+        'App\Domain\Identity\Repositories',
+        'App\Domain\Catalog\Repositories',
+        'App\Domain\Currency\Repositories',
+    ])
+    ->toBeInterfaces();
 
 arch('application contracts are interfaces')
     ->expect('App\Application\Identity\Contracts')
     ->toBeInterfaces();
 
 arch('use cases are final')
-    ->expect('App\Application\Identity\UseCases')
+    ->expect([
+        'App\Application\Identity\UseCases',
+        'App\Application\Catalog\UseCases',
+        'App\Application\Currency\UseCases',
+    ])
     ->toBeFinal();

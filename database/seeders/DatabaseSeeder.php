@@ -15,11 +15,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // UserModel::factory(10)->create();
+        UserModel::query()->firstOrCreate(
+            ['email' => 'test@example.com'],
+            UserModel::factory()->raw(['name' => 'Test User', 'email' => 'test@example.com']),
+        );
 
-        UserModel::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $this->call([
+            CurrencySeeder::class,
+            ProductSeeder::class,
         ]);
     }
 }
