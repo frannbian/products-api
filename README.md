@@ -22,13 +22,10 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 Requisitos: PHP 8.3+, Composer y Docker (para PostgreSQL, Redis y SQS).
 
 ```bash
-composer install
 cp .env.example .env               # completar DB_PASSWORD y REDIS_PASSWORD
-php artisan key:generate
-php artisan jwt:secret             # clave para firmar los JWT
-
 docker compose up -d               # PostgreSQL 17 + Redis 7.4 + SQS (ElasticMQ)
-php artisan migrate --seed         # tablas + datos de ejemplo
+composer setup                     # composer install + APP_KEY + JWT secret + migraciones
+php artisan db:seed                # datos de ejemplo
 php artisan serve                  # http://localhost:8000
 ```
 
@@ -227,6 +224,8 @@ Ejemplos de reglas de negocio que responden `422` sobre el campo afectado:
 - **Headers de seguridad:** `X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy`.
 - **CORS** limitado a `api/*` y al origen configurado en `FRONTEND_URL`, sin cookies.
 - **Contraseñas hasheadas** con bcrypt y nunca expuestas en las respuestas.
+- **Sin enumeración de usuarios.** `forgot-password` responde lo mismo exista o no el email, incluso si está limitado por throttling. El login da el mismo error para un email inexistente que para una contraseña incorrecta.
+- **Sin información del framework.** `GET /` no expone el nombre ni la versión de Laravel.
 - **En producción, `APP_DEBUG=false`,** así los errores responden solo el `message`, sin stack trace ni rutas internas. La UI de documentación solo se sirve con `APP_ENV=local`.
 
 ## Concurrencia

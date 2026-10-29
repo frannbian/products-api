@@ -684,6 +684,7 @@
         "/auth/forgot-password": {
             "post": {
                 "operationId": "password.email",
+                "description": "Always responds the same, whether the email is registered or not, so it\ncan not be used to find out which emails have an account.",
                 "summary": "Send a password reset link by email",
                 "tags": [
                     "PasswordResetLink"
@@ -708,13 +709,7 @@
                                     "properties": {
                                         "message": {
                                             "type": "string",
-                                            "enum": [
-                                                "passwords.sent",
-                                                "passwords.reset",
-                                                "passwords.user",
-                                                "passwords.token",
-                                                "passwords.throttled"
-                                            ]
+                                            "const": "If that email address is registered, we have emailed a password reset link to it."
                                         }
                                     },
                                     "required": [
