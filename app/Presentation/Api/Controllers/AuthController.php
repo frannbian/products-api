@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Presentation\Controllers;
+namespace App\Presentation\Api\Controllers;
 
 use App\Application\Identity\UseCases\LoginUser;
 use App\Application\Identity\UseCases\LogoutUser;
 use App\Application\Identity\UseCases\RegisterUser;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Auth\LoginRequest;
-use App\Http\Requests\Auth\RegisterRequest;
-use App\Http\Resources\UserResource;
+use App\Presentation\Api\Request\LoginRequest;
+use App\Presentation\Api\Request\RegisterRequest;
+use App\Presentation\Api\Resources\UserResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;

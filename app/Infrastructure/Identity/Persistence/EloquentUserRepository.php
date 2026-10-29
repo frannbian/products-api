@@ -2,8 +2,8 @@
 
 namespace App\Infrastructure\Identity\Persistence;
 
+use App\Domain\Identity\Entities\User;
 use App\Domain\Identity\Repositories\UserRepository;
-use App\Models\User;
 
 final class EloquentUserRepository implements UserRepository
 {

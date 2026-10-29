@@ -2,8 +2,8 @@
 
 namespace App\Infrastructure\Identity\Authentication;
 
+use App\Domain\Identity\Entities\User;
 use App\Domain\Identity\Services\TokenService;
-use App\Models\User;
 use RuntimeException;
 
 final class SanctumTokenService implements TokenService

@@ -2,6 +2,12 @@
 
 namespace App\Providers;
 
+use App\Domain\Identity\Repositories\UserRepository;
+use App\Domain\Identity\Services\PasswordHasher;
+use App\Domain\Identity\Services\TokenService;
+use App\Infrastructure\Identity\Authentication\SanctumTokenService;
+use App\Infrastructure\Identity\Persistence\EloquentUserRepository;
+use App\Infrastructure\Identity\Security\LaravelPasswordHasher;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
 
