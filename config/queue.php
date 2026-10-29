@@ -61,7 +61,12 @@ return [
             'queue' => env('SQS_QUEUE', 'default'),
             'suffix' => env('SQS_SUFFIX'),
             'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'after_commit' => false,
+            // Local SQS emulator (ElasticMQ); empty in production to use AWS.
+            'endpoint' => env('SQS_ENDPOINT'),
+            // Jobs dispatched inside a transaction are only sent once it
+            // commits: a worker never receives a message about data that was
+            // rolled back or is not visible yet.
+            'after_commit' => true,
         ],
 
         'redis' => [

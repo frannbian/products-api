@@ -44,6 +44,19 @@ services:
     networks:
       - redis_network
 
+  # Local SQS (ElasticMQ). In production the app points to AWS SQS instead:
+  # only SQS_PREFIX / SQS_ENDPOINT and the AWS credentials change.
+  sqs:
+    image: softwaremill/elasticmq-native:1.7.1
+    container_name: sqs
+    volumes:
+      - ./docker/elasticmq/elasticmq.conf:/opt/elasticmq.conf:ro
+    ports:
+      - "${SQS_PORT:-9324}:9324"
+      - "${SQS_STATS_PORT:-9325}:9325"
+    networks:
+      - sqs_network
+
 volumes:
   postgresql_data:
     driver: local
@@ -52,4 +65,6 @@ networks:
   postgres_network:
     driver: bridge
   redis_network:
+    driver: bridge
+  sqs_network:
     driver: bridge
