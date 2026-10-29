@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Domain\Catalog\ValueObjects;
+
+use App\Domain\Catalog\Exceptions\InvalidProduct;
+
+final readonly class ProductPriceId
+{
+    public function __construct(
+        private int $value
+    ) {
+        if ($this->value < 1) {
+            throw new InvalidProduct(
+                'The product price id must be a positive integer.'
+            );
+        }
+    }
+
+    public function value(): int
+    {
+        return $this->value;
+    }
+
+    public function equals(self $other): bool
+    {
+        return $this->value === $other->value;
+    }
+}
