@@ -29,6 +29,8 @@ API RESTful en Laravel 13 para gestionar productos, sus precios en distintas div
 
 No hace falta Node ni npm: es una API sin frontend.
 
+Docker es opcional: ver [Alternativa sin Docker](#alternativa-sin-docker).
+
 Para verificar las extensiones: `php -m | grep -iE "pdo_pgsql|mbstring|pcntl"`.
 
 **Puertos que usa el proyecto** (se pueden cambiar en el `.env`):
@@ -113,6 +115,80 @@ php artisan queue:work sqs --queue=default
 ```
 
 Sin los workers la API funciona igual, pero la importación masiva, el historial de cambios y el email de bienvenida quedan esperando en la cola hasta que alguno arranque.
+
+### Alternativa sin Docker
+
+**PostgreSQL es obligatorio**, porque el proyecto usa `jsonb`, locks y `SET LOCAL lock_timeout`, que no existen en SQLite. Redis y SQS, en cambio, se pueden reemplazar por la misma base de datos con los drivers `database` de Laravel, sin cambiar código.
+
+**1. Instalar PostgreSQL y la extensión de PHP**
+
+```bash
+# Ubuntu / Debian
+sudo apt install postgresql php-pgsql
+
+# macOS (Homebrew): PHP ya trae pdo_pgsql
+brew install postgresql@17 && brew services start postgresql@17
+```
+
+**2. Crear el usuario y las bases**
+
+```bash
+sudo -u postgres psql \
+  -c "CREATE USER products WITH PASSWORD 'secret';" \
+  -c "CREATE DATABASE beos_challange OWNER products;" \
+  -c "CREATE DATABASE beos_challange_test OWNER products;"
+```
+
+En macOS, usar `psql postgres` en lugar de `sudo -u postgres psql`.
+
+**3. Configurar el `.env`**
+
+```bash
+cp .env.example .env
+```
+
+Cambiar estos valores:
+
+```dotenv
+DB_USERNAME=products
+DB_PASSWORD=secret
+
+CACHE_STORE=database
+QUEUE_CONNECTION=database
+# Mayor que el timeout del job de importación (300 s), para que no se
+# entregue a otro worker mientras el primero sigue procesándolo.
+DB_QUEUE_RETRY_AFTER=360
+```
+
+**4. Instalar y levantar**
+
+```bash
+composer setup
+php artisan db:seed
+php artisan serve
+```
+
+Y en otra terminal, un solo worker para todas las colas:
+
+```bash
+php artisan queue:work --queue=imports,catalog-events,mail,default --sleep=1
+```
+
+**Qué cambia respecto de la instalación con Docker**
+
+| | Con Docker (Redis + SQS) | Sin Docker (`database`) |
+|---|---|---|
+| API, reglas de negocio y tests | Igual | Igual |
+| Cache, rate limiting e `Idempotency-Key` | En Redis | En la tabla `cache`, más lento bajo carga |
+| Colas | SQS, con long polling y una dead-letter queue por cola | Tabla `jobs`, sin dead-letter queues. Los jobs que agotan sus reintentos quedan en `failed_jobs` |
+| Workers | Uno por cola | Puede ser uno solo, porque no hay long polling |
+| `/up` | Verifica la base y Redis | Verifica la base y el cache, que está en la base |
+
+Esta alternativa alcanza para desarrollar o evaluar el proyecto. Para producción se recomienda Redis y SQS.
+
+**Si preferís Redis instalado en la máquina**, dejá `CACHE_STORE=redis` y configurá `REDIS_HOST`, `REDIS_PORT` y `REDIS_PASSWORD` (vacío si no tiene contraseña).
+
+**Tests:** `php artisan test` funciona igual y usa la base `beos_challange_test` creada en el paso 2.
 
 ### Verificar que todo funciona
 
